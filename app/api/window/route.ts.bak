@@ -1,0 +1,28 @@
+import { NextResponse } from 'next/server';
+import { db, makeId } from '../../../lib/db';
+
+export async function POST(req: Request) {
+  const body = await req.json().catch(()=> ({}));
+  const { candidateName = '', title = '', candidateRanges = [], eaDirectory = [] } = body;
+
+  db.window = {
+    candidateName,
+    title,
+    candidateRanges,
+    eaDirectory,
+    id: makeId(),
+    createdAt: new Date().toISOString(),
+  };
+  db.submissions = [];
+
+  const base = (process.env.APP_BASE_URL || '').replace(/\/+$/,'') || 'http://localhost:3000';
+  return NextResponse.json({
+    ok: true,
+    eaLink: `${base}/respond`,
+    dashboard: `${base}/dashboard`
+  });
+}
+
+export async function GET() {
+  return NextResponse.json({ window: db.window, submissions: db.submissions });
+}
