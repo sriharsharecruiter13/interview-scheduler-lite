@@ -1,19 +1,17 @@
 import { NextResponse } from 'next/server';
-import { db } from '../../../../lib/db'; // 3-level relative from app/api/ea/submit/route.ts
+import { addSubmission, getSubmissions } from '../../../../lib/store';
 
 type EaRange = { start: string; end: string };
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(()=> ({}));
-    const execName = String(body?.execName || '').trim();
-    const ranges = Array.isArray(body?.ranges) ? body.ranges as EaRange[] : [];
-
-    // Basic validation — these are the usual reasons EA page "throws an error"
-    const clean = ranges
-      .filter(r => r?.start && r?.end)
-      .map(r => ({ start: String(r.start), end: String(r.end) }))
-      .filter(r => new Date(r.end) > new Date(r.start));
+  try{
+    const { execName, ranges = [] } = await req.json();
+    const clean: EaRange[] = Array.isArray(ranges)
+      ? ranges
+          .filter((r:any)=> r?.start && r?.end)
+          .map((r:any)=> ({ start: String(r.start), end: String(r.end) }))
+          .filter(r => new Date(r.end) > new Date(r.start))
+      : [];
 
     if (!execName || clean.length === 0) {
       return NextResponse.json(
@@ -22,13 +20,14 @@ export async function POST(req: Request) {
       );
     }
 
-    db.submissions.push({ execName, ranges: clean, at: new Date().toISOString() });
+    await addSubmission({ execName, ranges: clean, at: new Date().toISOString() } as any);
     return NextResponse.json({ ok:true });
-  } catch {
-    return NextResponse.json({ ok:false, error:'Bad request' }, { status:400 });
+  } catch(e:any){
+    return NextResponse.json({ ok:false, error:e?.message || 'failed' }, { status:500 });
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ submissions: db.submissions });
+  const submissions = await getSubmissions();
+  return NextResponse.json({ submissions });
 }

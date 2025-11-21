@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db, makeId } from '../../../lib/db';
+import { saveWindow, getWindow, getSubmissions } from '../../../lib/store';
 
 export const runtime = 'nodejs';
 
@@ -7,7 +8,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(()=> ({} as any));
   const { candidateName, title, candidateRanges = [], eaDirectory = [] } = body;
 
-  db.window = {
+  const win = {
     candidateName,
     title,
     candidateRanges,
@@ -15,8 +16,9 @@ export async function POST(req: Request) {
     id: makeId(),
     createdAt: new Date().toISOString(),
   };
-  db.submissions = [];
+  await saveWindow(win);
 
+  // absolute links based on request host
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3000';
   const proto = host.includes('localhost') ? 'http' : 'https';
   const base = `${proto}://${host}`.replace(/\/+$/,'');
@@ -29,5 +31,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
-  return NextResponse.json({ window: db.window, submissions: db.submissions });
+  const window = await getWindow();
+  const submissions = await getSubmissions();
+  return NextResponse.json({ window, submissions });
 }
