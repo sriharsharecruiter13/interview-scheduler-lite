@@ -39,7 +39,8 @@ export async function addSubmission(sub: EaSubmission) {
 
 export async function getSubmissions(): Promise<EaSubmission[]> {
   if (redis) {
-    const raw = await redis.lrange<string[]>(KEYS.subs, 0, -1);
+    // element type is string → lrange returns string[]
+    const raw = await redis.lrange<string>(KEYS.subs, 0, -1);
     return (raw || []).map((s) => JSON.parse(s)) as EaSubmission[];
   }
   return localSubs;
