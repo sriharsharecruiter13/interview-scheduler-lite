@@ -1,44 +1,46 @@
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 import type { Window, EaSubmission } from './db';
 
-const HAS_KV = !!process.env.KV_URL;
+const HAS_UPSTASH = !!process.env.UPSTASH_REDIS_REST_URL;
+const redis = HAS_UPSTASH
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
+  : null;
 
-// Local fallback (used in dev if no KV)
 let localWindow: Window | null = null;
 let localSubs: EaSubmission[] = [];
 
-const KEYS = {
-  window: 'isl:window',
-  subs:   'isl:subs',
-};
+const KEYS = { window: 'isl:window', subs: 'isl:subs' };
 
-export async function saveWindow(win: Window){
-  if (HAS_KV){
-    await kv.set(KEYS.window, win);
-    await kv.del(KEYS.subs);
+export async function saveWindow(win: Window) {
+  if (redis) {
+    await redis.set(KEYS.window, win);
+    await redis.del(KEYS.subs);
   } else {
     localWindow = win;
     localSubs = [];
   }
 }
 
-export async function getWindow(): Promise<Window|null>{
-  if (HAS_KV) return (await kv.get<Window>(KEYS.window)) || null;
+export async function getWindow(): Promise<Window | null> {
+  if (redis) return (await redis.get<Window>(KEYS.window)) || null;
   return localWindow;
 }
 
-export async function addSubmission(sub: EaSubmission){
-  if (HAS_KV){
-    await kv.rpush(KEYS.subs, JSON.stringify(sub));
+export async function addSubmission(sub: EaSubmission) {
+  if (redis) {
+    await redis.rpush(KEYS.subs, JSON.stringify(sub));
   } else {
     localSubs.push(sub);
   }
 }
 
-export async function getSubmissions(): Promise<EaSubmission[]>{
-  if (HAS_KV){
-    const raw = await kv.lrange(KEYS.subs, 0, -1);
-    return (raw as string[]).map(s=>JSON.parse(s)) as EaSubmission[];
+export async function getSubmissions(): Promise<EaSubmission[]> {
+  if (redis) {
+    const raw = await redis.lrange<string[]>(KEYS.subs, 0, -1);
+    return (raw || []).map((s) => JSON.parse(s)) as EaSubmission[];
   }
   return localSubs;
 }
