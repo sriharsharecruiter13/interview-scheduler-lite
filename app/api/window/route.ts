@@ -17,7 +17,6 @@ export async function POST(req: Request) {
   };
   db.submissions = [];
 
-  // Build absolute URLs from the incoming request host (works on localhost & Vercel)
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3000';
   const proto = host.includes('localhost') ? 'http' : 'https';
   const base = `${proto}://${host}`.replace(/\/+$/,'');
