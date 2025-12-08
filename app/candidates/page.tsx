@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AppNav from "@/components/AppNav";
 
 type RawEntry = any;
 
@@ -15,7 +16,6 @@ type CandidateEntry = {
 const STORAGE_KEY = "candidateLog";
 
 function normalizeEntry(e: RawEntry, index: number): CandidateEntry {
-  // Try to tolerate different shapes in localStorage
   const candidateName =
     e.candidateName || e.name || e.candidate || `Candidate ${index + 1}`;
   const title = e.title || e.role || e.position || "";
@@ -63,47 +63,7 @@ export default function CandidateLogPage() {
           <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
 
-        {/* Nav row */}
-        <nav className="flex flex-wrap gap-2 items-center mb-4">
-          <a
-            href="/"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Scheduler
-          </a>
-          <a
-            href="/respond"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            EA page
-          </a>
-          <a
-            href="/dashboard"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Dashboard
-          </a>
-          <a
-            href="/candidates"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-50 text-slate-900"
-          >
-            Candidate log
-          </a>
-          <a
-            href="/execs"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Exec availability
-          </a>
-        </nav>
+        <AppNav active="candidates" />
 
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Candidate log</h1>

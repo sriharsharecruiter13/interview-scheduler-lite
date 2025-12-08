@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import AppNav from "@/components/AppNav";
 
 type Range = { start: string; end: string };
 
@@ -13,7 +14,7 @@ type Submission = {
 type WindowResponse = {
   window?: {
     candidateName?: string;
-    candidateTitle?: string;
+    title?: string;
     candidateRanges?: Range[];
   };
   submissions?: Submission[];
@@ -54,6 +55,7 @@ function formatDateRange(start: Date, end: Date) {
   return {
     dateLabel: datePart,
     timeLabel: `${s} – ${e}`,
+    sameDay,
   };
 }
 
@@ -68,7 +70,6 @@ function humanCandidateWindow(ranges: Range[] | undefined | null): string {
   return `${dateLabel} ${timeLabel}`;
 }
 
-// check if [start,end] is fully within any of the ranges
 function isCovered(ranges: Range[], start: Date, end: Date): boolean {
   const sMs = start.getTime();
   const eMs = end.getTime();
@@ -88,7 +89,6 @@ function generateSlots(
 ): Slot[] {
   if (candidateRanges.length === 0) return [];
 
-  // overall candidate window min/max
   const starts = candidateRanges
     .map((r) => parseISO(r.start))
     .filter((d): d is Date => !!d);
@@ -113,10 +113,8 @@ function generateSlots(
     const s = new Date(t);
     const e = new Date(t + meetingMs);
 
-    // ensure candidate is free for full window
     if (!isCovered(candidateRanges, s, e)) continue;
 
-    // which execs are fully available in this window?
     const execs: string[] = [];
     for (const sub of submissions) {
       if (!sub.ranges || sub.ranges.length === 0) continue;
@@ -156,7 +154,7 @@ export default function DashboardPage() {
   }, []);
 
   const candidateName = data?.window?.candidateName ?? "Candidate";
-  const candidateTitle = data?.window?.candidateTitle ?? "";
+  const candidateTitle = data?.window?.title ?? "";
   const candidateRanges = data?.window?.candidateRanges ?? [];
   const submissions = data?.submissions ?? [];
 
@@ -180,7 +178,6 @@ export default function DashboardPage() {
       };
     }
 
-    // sort by #execs desc, then by start asc
     const sorted = [...slots].sort((a, b) => {
       if (b.execs.length !== a.execs.length) {
         return b.execs.length - a.execs.length;
@@ -189,12 +186,11 @@ export default function DashboardPage() {
     });
 
     const majoritySlot = sorted[0];
-
     const maxExecs = majoritySlot.execs.length;
 
     const nextSlots = sorted
       .slice(1)
-      .filter((s) => s.execs.length >= Math.max(2, maxExecs - 1)); // "next possible"
+      .filter((s) => s.execs.length >= Math.max(2, maxExecs - 1));
 
     const allExecNames = Array.from(
       new Set(submissions.map((s) => s.execName))
@@ -207,7 +203,6 @@ export default function DashboardPage() {
   }, [candidateRanges, submissions]);
 
   const groupedExec = useMemo(() => {
-    // For "Exec availability so far (grouped by day)" section
     const map: Record<string, Record<string, string[]>> = {};
     for (const s of submissions) {
       for (const r of s.ranges || []) {
@@ -242,55 +237,54 @@ export default function DashboardPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[#050816] text-zinc-50 px-4 py-6">
+    <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Logo row — assuming you already have logo + nav elsewhere in layout;
-            if not, you can add nav here too */}
-        <div className="flex justify-end mb-2">
+        {/* Logo */}
+        <div className="flex justify-end">
           <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
 
-        {/* Page header */}
+        <AppNav active="dashboard" />
+
+        {/* Header */}
         <header className="space-y-1">
           <h1 className="text-3xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-slate-400">
             Live view of EA submissions and common 60-min windows for this
             candidate.
           </p>
         </header>
 
         {/* Candidate card */}
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-            <div className="space-y-1">
-              <div className="text-xs uppercase tracking-wide text-zinc-500">
-                Candidate
-              </div>
-              <div className="text-lg font-semibold">{candidateName}</div>
-              {candidateTitle && (
-                <div className="text-sm text-zinc-300">{candidateTitle}</div>
-              )}
-              <div className="mt-3 text-sm font-semibold">
-                Candidate availability
-              </div>
-              <div className="text-sm text-zinc-200">
-                {candidateWindowLabel}
-              </div>
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5">
+          <div className="space-y-2">
+            <div className="text-xs uppercase tracking-wide text-slate-500">
+              Candidate
+            </div>
+            <div className="text-lg font-semibold">{candidateName}</div>
+            {candidateTitle && (
+              <div className="text-sm text-slate-300">{candidateTitle}</div>
+            )}
+            <div className="mt-3 text-sm font-semibold">
+              Candidate availability
+            </div>
+            <div className="text-sm text-slate-200">
+              {candidateWindowLabel}
             </div>
           </div>
         </section>
 
-        {/* EA submissions table (like you already had) */}
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5 space-y-3">
+        {/* EA submissions */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 space-y-3">
           <h2 className="text-lg font-semibold">EA submissions</h2>
-          {submissions.length === 0 ? (
-            <div className="text-sm text-zinc-400">
-              No EA submissions yet.
-            </div>
+          {loading && submissions.length === 0 ? (
+            <div className="text-sm text-slate-400">Loading…</div>
+          ) : submissions.length === 0 ? (
+            <div className="text-sm text-slate-400">No EA submissions yet.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm text-left">
-                <thead className="border-b border-zinc-800 text-xs uppercase text-zinc-500">
+                <thead className="border-b border-slate-800 text-xs uppercase text-slate-400">
                   <tr>
                     <th className="py-2 pr-4">Exec</th>
                     <th className="py-2 pr-4">Submitted at</th>
@@ -301,17 +295,15 @@ export default function DashboardPage() {
                   {submissions.map((s, idx) => (
                     <tr
                       key={idx}
-                      className="border-b border-zinc-900 last:border-0"
+                      className="border-b border-slate-800/60 last:border-0"
                     >
                       <td className="py-2 pr-4 whitespace-nowrap">
                         {s.execName}
                       </td>
-                      <td className="py-2 pr-4 whitespace-nowrap text-zinc-400 text-xs">
-                        {s.at
-                          ? new Date(s.at).toLocaleString()
-                          : "—"}
+                      <td className="py-2 pr-4 whitespace-nowrap text-slate-400 text-xs">
+                        {s.at ? new Date(s.at).toLocaleString() : "—"}
                       </td>
-                      <td className="py-2 pr-4 text-zinc-200">
+                      <td className="py-2 pr-4 text-slate-200">
                         {s.ranges
                           .map((r) => {
                             const start = parseISO(r.start);
@@ -331,15 +323,15 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* Exec availability grouped by day (like old white dashboard) */}
+        {/* Exec availability grouped by day */}
         {Object.keys(groupedExec).length > 0 && (
-          <section className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5 space-y-3">
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 space-y-3">
             <h2 className="text-lg font-semibold">
               Exec availability so far (grouped by day)
             </h2>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm text-left">
-                <thead className="border-b border-zinc-800 text-xs uppercase text-zinc-500">
+                <thead className="border-b border-slate-800 text-xs uppercase text-slate-400">
                   <tr>
                     <th className="py-2 pr-4">Date</th>
                     {execNames.map((name) => (
@@ -350,32 +342,28 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(groupedExec).map(
-                    ([day, row]) => (
-                      <tr
-                        key={day}
-                        className="border-b border-zinc-900 last:border-0"
-                      >
-                        <td className="py-2 pr-4 font-semibold">
-                          {day}
+                  {Object.entries(groupedExec).map(([day, row]) => (
+                    <tr
+                      key={day}
+                      className="border-b border-slate-800/60 last:border-0"
+                    >
+                      <td className="py-2 pr-4 font-semibold">{day}</td>
+                      {execNames.map((name) => (
+                        <td key={name} className="py-2 pr-4">
+                          {(row as any)[name]?.join(" • ") || "—"}
                         </td>
-                        {execNames.map((name) => (
-                          <td key={name} className="py-2 pr-4">
-                            {(row as any)[name]?.join(" • ") ||
-                              "—"}
-                          </td>
-                        ))}
-                      </tr>
-                    )
-                  )}
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </section>
         )}
 
-        {/* Majority 60-min window */}
+        {/* Majority + next + ask to flex */}
         <section className="space-y-3">
+          {/* Majority */}
           <div className="rounded-2xl border border-blue-900/60 bg-blue-950/40 p-4 md:p-5">
             <h2 className="text-sm font-semibold text-blue-200">
               Majority 60-min window
@@ -406,8 +394,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Next possible windows */}
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5 space-y-2">
-            <h2 className="text-sm font-semibold text-zinc-100">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 space-y-2">
+            <h2 className="text-sm font-semibold text-slate-100">
               Next possible windows
             </h2>
             {nextSlots && nextSlots.length > 0 ? (
@@ -420,12 +408,12 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={idx}
-                      className="rounded-xl border border-zinc-800 bg-zinc-900/80 px-3 py-2"
+                      className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2"
                     >
                       <div className="text-sm font-medium">
                         {dateLabel} {timeLabel}
                       </div>
-                      <div className="text-xs text-zinc-400">
+                      <div className="text-xs text-slate-400">
                         Aligned execs ({slot.execs.length}):{" "}
                         {slot.execs.join(", ")}
                       </div>
@@ -434,7 +422,7 @@ export default function DashboardPage() {
                 })}
               </div>
             ) : (
-              <div className="text-sm text-zinc-400">
+              <div className="text-sm text-slate-400">
                 No additional strong windows yet.
               </div>
             )}
@@ -447,11 +435,8 @@ export default function DashboardPage() {
             </h2>
             {majoritySlot && askToFlex.length > 0 ? (
               <div className="mt-2 text-sm text-amber-100">
-                Ask these execs if they can flex around the majority
-                window:{" "}
-                <span className="font-medium">
-                  {askToFlex.join(", ")}
-                </span>
+                Ask these execs if they can flex around the majority window:{" "}
+                <span className="font-medium">{askToFlex.join(", ")}</span>
               </div>
             ) : (
               <div className="mt-2 text-sm text-amber-100">

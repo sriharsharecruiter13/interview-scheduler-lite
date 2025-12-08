@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import AppNav from "@/components/AppNav";
 
 type Range = { start: string; end: string };
 type Submission = { execName: string; ranges: Range[]; at: string };
@@ -52,6 +53,18 @@ function toISO(date: string, time: string): string {
   return `${date}T${time}`;
 }
 
+function uiRowToRange(r: UIRange): Range | null {
+  const startTime =
+    r.startChoice === "dropdown" ? r.startDropdown : r.startCustom;
+  const endTime =
+    r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
+  const startISO = toISO(r.date, startTime);
+  const endISO = toISO(r.date, endTime);
+  if (!startISO || !endISO) return null;
+  if (new Date(endISO) <= new Date(startISO)) return null;
+  return { start: startISO, end: endISO };
+}
+
 export default function Respond() {
   const [execName, setExecName] = useState("");
   const [rows, setRows] = useState<UIRange[]>([
@@ -79,7 +92,6 @@ export default function Respond() {
     setSubs(d?.submissions || []);
   }
   async function loadAnalysis() {
-    // keep to preserve existing behavior, but ignore analysis in UI
     try {
       await fetch("/api/agent/run").then((r) => r.json());
     } catch {
@@ -125,18 +137,6 @@ export default function Respond() {
   }
   function removeRow(i: number) {
     setRows((list) => list.filter((_, idx) => idx !== i));
-  }
-
-  function uiRowToRange(r: UIRange): Range | null {
-    const startTime =
-      r.startChoice === "dropdown" ? r.startDropdown : r.startCustom;
-    const endTime =
-      r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
-    const startISO = toISO(r.date, startTime);
-    const endISO = toISO(r.date, endTime);
-    if (!startISO || !endISO) return null;
-    if (new Date(endISO) <= new Date(startISO)) return null;
-    return { start: startISO, end: endISO };
   }
 
   async function submit() {
@@ -203,7 +203,6 @@ export default function Respond() {
     }
   }
 
-  // group exec availability by day (for the table)
   const grouped = useMemo(() => {
     const map: Record<string, Record<string, string[]>> = {};
     for (const s of subs) {
@@ -232,47 +231,7 @@ export default function Respond() {
           <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
 
-        {/* Nav row */}
-        <nav className="flex flex-wrap gap-2 items-center mb-4">
-          <a
-            href="/"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Scheduler
-          </a>
-          <a
-            href="/respond"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-50 text-slate-900"
-          >
-            EA page
-          </a>
-          <a
-            href="/dashboard"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Dashboard
-          </a>
-          <a
-            href="/candidates"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Candidate log
-          </a>
-          <a
-            href="/execs"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Exec availability
-          </a>
-        </nav>
+        <AppNav active="ea" />
 
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">EA availability submission</h1>
@@ -379,7 +338,9 @@ export default function Respond() {
                           )
                         }
                       >
-                        {r.startChoice === "dropdown" ? "Use custom" : "Use dropdown"}
+                        {r.startChoice === "dropdown"
+                          ? "Use custom"
+                          : "Use dropdown"}
                       </button>
                     </div>
                     {r.startChoice === "dropdown" ? (
@@ -424,7 +385,9 @@ export default function Respond() {
                           )
                         }
                       >
-                        {r.endChoice === "dropdown" ? "Use custom" : "Use dropdown"}
+                        {r.endChoice === "dropdown"
+                          ? "Use custom"
+                          : "Use dropdown"}
                       </button>
                     </div>
                     {r.endChoice === "dropdown" ? (

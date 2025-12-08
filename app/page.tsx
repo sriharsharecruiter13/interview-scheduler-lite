@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import AppNav from "@/components/AppNav";
 
 type Range = { start: string; end: string };
 
@@ -191,11 +192,11 @@ export default function SchedulerPage() {
       setStatus("Scheduler window created.");
       setLinks({ eaLink: j.eaLink, dashboard: j.dashboard });
 
-      // log candidate in localStorage for Candidate log page
       appendCandidateLog({
         candidateName,
         title,
-        schedulerUrl: typeof window !== "undefined" ? window.location.href : "",
+        schedulerUrl:
+          typeof window !== "undefined" ? window.location.href : "",
       });
     } catch (e: any) {
       setError(e.message || "Failed to save");
@@ -212,47 +213,7 @@ export default function SchedulerPage() {
           <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
 
-        {/* Nav row */}
-        <nav className="flex flex-wrap gap-2 items-center mb-4">
-          <a
-            href="/"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-50 text-slate-900"
-          >
-            Scheduler
-          </a>
-          <a
-            href="/respond"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            EA page
-          </a>
-          <a
-            href="/dashboard"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Dashboard
-          </a>
-          <a
-            href="/candidates"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Candidate log
-          </a>
-          <a
-            href="/execs"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Exec availability
-          </a>
-        </nav>
+        <AppNav active="scheduler" />
 
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec Scheduling – Scheduler</h1>

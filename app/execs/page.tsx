@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AppNav from "@/components/AppNav";
 
 type Range = { start: string; end: string };
 
@@ -23,7 +24,6 @@ function parseISO(s: string | undefined | null): Date | null {
 }
 
 function getTimeZoneAbbr(d: Date): string {
-  // e.g. "Dec 7, 2025, 9:00 AM PST" -> "PST"
   const fmt = new Intl.DateTimeFormat(undefined, {
     timeZoneName: "short",
   }).format(d);
@@ -95,47 +95,7 @@ export default function ExecAvailabilityPage() {
           <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
 
-        {/* Nav row */}
-        <nav className="flex flex-wrap gap-2 items-center mb-4">
-          <a
-            href="/"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Scheduler
-          </a>
-          <a
-            href="/respond"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            EA page
-          </a>
-          <a
-            href="/dashboard"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Dashboard
-          </a>
-          <a
-            href="/candidates"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Candidate log
-          </a>
-          <a
-            href="/execs"
-            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-50 text-slate-900"
-          >
-            Exec availability
-          </a>
-        </nav>
+        <AppNav active="execs" />
 
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec availability</h1>

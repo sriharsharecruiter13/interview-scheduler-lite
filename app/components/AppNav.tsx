@@ -1,41 +1,92 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 
-const tabs = [
-  { href: "/", label: "Scheduler" },
-  { href: "/respond", label: "EA page" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/candidates", label: "Candidate log" },
-  { href: "/execs", label: "Exec availability" },
-];
+type ActiveTab = "scheduler" | "ea" | "dashboard" | "candidates" | "execs";
 
-export function AppNav() {
-  const pathname = usePathname();
+interface AppNavProps {
+  active: ActiveTab;
+}
+
+export default function AppNav({ active }: AppNavProps) {
+  const baseClasses =
+    "px-3 py-1.5 text-xs rounded-full border border-slate-700";
+  const activeClasses = "bg-slate-50 text-slate-900";
+  const inactiveClasses = "bg-slate-900 text-slate-50";
 
   return (
-    <nav className="flex flex-wrap gap-2">
-      {tabs.map((tab) => {
-        const isActive =
-          pathname === tab.href ||
-          (tab.href !== "/" && pathname.startsWith(tab.href));
+    <nav className="flex flex-wrap gap-2 items-center mb-4">
+      {/* Scheduler */}
+      {active === "scheduler" ? (
+        <span className={`${baseClasses} ${activeClasses}`}>Scheduler</span>
+      ) : (
+        <Link
+          href="/"
+          className={`${baseClasses} ${inactiveClasses}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Scheduler
+        </Link>
+      )}
 
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={[
-              "rounded-full px-4 py-1.5 text-sm border transition-colors",
-              isActive
-                ? "bg-white text-black border-white shadow-sm"
-                : "bg-zinc-900 border-zinc-700 text-zinc-200 hover:border-zinc-500",
-            ].join(" ")}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
+      {/* EA page */}
+      {active === "ea" ? (
+        <span className={`${baseClasses} ${activeClasses}`}>EA page</span>
+      ) : (
+        <Link
+          href="/respond"
+          className={`${baseClasses} ${inactiveClasses}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          EA page
+        </Link>
+      )}
+
+      {/* Dashboard */}
+      {active === "dashboard" ? (
+        <span className={`${baseClasses} ${activeClasses}`}>Dashboard</span>
+      ) : (
+        <Link
+          href="/dashboard"
+          className={`${baseClasses} ${inactiveClasses}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Dashboard
+        </Link>
+      )}
+
+      {/* Candidate log */}
+      {active === "candidates" ? (
+        <span className={`${baseClasses} ${activeClasses}`}>Candidate log</span>
+      ) : (
+        <Link
+          href="/candidates"
+          className={`${baseClasses} ${inactiveClasses}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Candidate log
+        </Link>
+      )}
+
+      {/* Exec availability */}
+      {active === "execs" ? (
+        <span className={`${baseClasses} ${activeClasses}`}>
+          Exec availability
+        </span>
+      ) : (
+        <Link
+          href="/execs"
+          className={`${baseClasses} ${inactiveClasses}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Exec availability
+        </Link>
+      )}
     </nav>
   );
 }
