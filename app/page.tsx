@@ -206,7 +206,7 @@ export default function SchedulerPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6">
+    <main className="min-h-screen bg-slate-50 text-slate-900 px-4 py-6">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Logo */}
         <div className="flex justify-end">
@@ -217,29 +217,33 @@ export default function SchedulerPage() {
 
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec Scheduling – Scheduler</h1>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-600">
             Enter the candidate details and availability. EAs will submit exec
             availability against this window.
           </p>
         </header>
 
-        <section className="space-y-4 bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
+        <section className="space-y-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
           {/* Candidate info */}
           <div className="space-y-2">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium">Candidate name</label>
+                <label className="text-sm font-medium text-slate-800">
+                  Candidate name
+                </label>
                 <input
-                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                   value={candidateName}
                   onChange={(e) => setCandidateName(e.target.value)}
                   placeholder="Candidate full name"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium">Role / Title</label>
+                <label className="text-sm font-medium text-slate-800">
+                  Role / Title
+                </label>
                 <input
-                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Role (e.g. VP Product)"
@@ -250,21 +254,21 @@ export default function SchedulerPage() {
 
           {/* Candidate ranges */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-sm font-medium text-slate-800">
               Candidate availability (date + 30-min dropdown or custom times)
             </label>
             {ranges.map((r, i) => (
               <div
                 key={i}
-                className="space-y-2 border border-slate-800 rounded-lg p-3"
+                className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50"
               >
                 {/* Date */}
                 <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex flex-col flex-1">
-                    <span className="text-xs text-slate-400 mb-1">Date</span>
+                    <span className="text-xs text-slate-500 mb-1">Date</span>
                     <input
                       type="date"
-                      className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                       value={r.date}
                       onChange={(e) =>
                         updateRange(i, "date", e.target.value)
@@ -278,10 +282,10 @@ export default function SchedulerPage() {
                   {/* Start */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">Start time</span>
+                      <span className="text-xs text-slate-500">Start time</span>
                       <button
                         type="button"
-                        className="text-[11px] text-sky-400"
+                        className="text-[11px] text-sky-600"
                         onClick={() =>
                           updateRange(
                             i,
@@ -299,7 +303,7 @@ export default function SchedulerPage() {
                     </div>
                     {r.startChoice === "dropdown" ? (
                       <select
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.startDropdown}
                         onChange={(e) =>
                           updateRange(
@@ -319,7 +323,7 @@ export default function SchedulerPage() {
                     ) : (
                       <input
                         type="time"
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.startCustom}
                         onChange={(e) =>
                           updateRange(
@@ -335,10 +339,10 @@ export default function SchedulerPage() {
                   {/* End */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">End time</span>
+                      <span className="text-xs text-slate-500">End time</span>
                       <button
                         type="button"
-                        className="text-[11px] text-sky-400"
+                        className="text-[11px] text-sky-600"
                         onClick={() =>
                           updateRange(
                             i,
@@ -356,7 +360,7 @@ export default function SchedulerPage() {
                     </div>
                     {r.endChoice === "dropdown" ? (
                       <select
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.endDropdown}
                         onChange={(e) =>
                           updateRange(
@@ -376,7 +380,7 @@ export default function SchedulerPage() {
                     ) : (
                       <input
                         type="time"
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.endCustom}
                         onChange={(e) =>
                           updateRange(
@@ -393,7 +397,7 @@ export default function SchedulerPage() {
                 <div className="flex justify-end">
                   <button
                     type="button"
-                    className="text-xs text-red-400"
+                    className="text-xs text-red-500"
                     onClick={() => removeRange(i)}
                   >
                     Remove range
@@ -403,7 +407,7 @@ export default function SchedulerPage() {
             ))}
             <button
               type="button"
-              className="text-xs text-sky-400 hover:text-sky-300"
+              className="text-xs text-sky-600 hover:text-sky-500"
               onClick={addRange}
             >
               Add another range
@@ -412,20 +416,20 @@ export default function SchedulerPage() {
 
           {/* EA directory */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-sm font-medium text-slate-800">
               EA directory (optional – used to send EA links)
             </label>
             {eaList.map((ea, idx) => (
               <div key={idx} className="flex gap-2 mb-1">
                 <input
-                  className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                  className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                   placeholder="EA email"
                   value={ea.email}
                   onChange={(e) => updateEa(idx, e.target.value)}
                 />
                 <button
                   type="button"
-                  className="text-xs text-red-400"
+                  className="text-xs text-red-500"
                   onClick={() => removeEaRow(idx)}
                 >
                   Remove
@@ -434,7 +438,7 @@ export default function SchedulerPage() {
             ))}
             <button
               type="button"
-              className="text-xs text-sky-400 hover:text-sky-300"
+              className="text-xs text-sky-600 hover:text-sky-500"
               onClick={addEaRow}
             >
               Add another EA
@@ -453,10 +457,10 @@ export default function SchedulerPage() {
             </button>
 
             {status && (
-              <span className="text-xs text-emerald-300">{status}</span>
+              <span className="text-xs text-emerald-600">{status}</span>
             )}
             {error && (
-              <span className="text-xs text-red-300">{error}</span>
+              <span className="text-xs text-red-600">{error}</span>
             )}
           </div>
 
@@ -470,7 +474,7 @@ export default function SchedulerPage() {
                     href={links.eaLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sky-400 underline"
+                    className="text-sky-600 underline"
                   >
                     Open EA page
                   </a>
@@ -483,7 +487,7 @@ export default function SchedulerPage() {
                     href={links.dashboard}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sky-400 underline"
+                    className="text-sky-600 underline"
                   >
                     Open dashboard
                   </a>
