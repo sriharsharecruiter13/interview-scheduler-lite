@@ -60,6 +60,7 @@ function uiRowToRange(r: UIRange): Range | null {
 function appendCandidateLog(entry: {
   candidateName: string;
   title: string;
+  execList?: string;
   schedulerUrl?: string;
 }) {
   if (typeof window === "undefined") return;
@@ -73,6 +74,7 @@ function appendCandidateLog(entry: {
       id: `${entry.candidateName}-${createdAt}`,
       candidateName: entry.candidateName,
       title: entry.title,
+      execList: entry.execList,
       schedulerUrl: entry.schedulerUrl,
       createdAt,
     });
@@ -86,6 +88,9 @@ function appendCandidateLog(entry: {
 export default function SchedulerPage() {
   const [candidateName, setCandidateName] = useState("");
   const [title, setTitle] = useState("");
+  const [execList, setExecList] = useState(
+    "" // e.g. "Cathy: SVP Product\nNeil: VP Eng\nJohn: VP Design"
+  );
   const [ranges, setRanges] = useState<UIRange[]>([
     {
       date: "",
@@ -180,6 +185,7 @@ export default function SchedulerPage() {
           title,
           candidateRanges: cleanRanges,
           eaDirectory,
+          execList, // 👈 send exec list to backend
         }),
       });
 
@@ -195,6 +201,7 @@ export default function SchedulerPage() {
       appendCandidateLog({
         candidateName,
         title,
+        execList,
         schedulerUrl:
           typeof window !== "undefined" ? window.location.href : "",
       });
@@ -250,6 +257,23 @@ export default function SchedulerPage() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Exec list for this request */}
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-slate-800">
+              Execs for this request
+            </label>
+            <p className="text-xs text-slate-500 mb-1">
+              Help EAs see which execs you&apos;re scheduling (e.g. &quot;Cathy
+              – SVP Product; Neil – VP Eng; John – VP Design&quot;).
+            </p>
+            <textarea
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 min-h-[72px]"
+              value={execList}
+              onChange={(e) => setExecList(e.target.value)}
+              placeholder="Cathy – SVP Product&#10;Neil – VP Eng&#10;John – VP Design"
+            />
           </div>
 
           {/* Candidate ranges */}

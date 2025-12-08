@@ -10,9 +10,10 @@ interface AppNavProps {
 
 export default function AppNav({ active }: AppNavProps) {
   const baseClasses =
-    "px-3 py-1.5 text-xs rounded-full border border-slate-700";
-  const activeClasses = "bg-slate-50 text-slate-900";
-  const inactiveClasses = "bg-slate-900 text-slate-50";
+    "px-3 py-1.5 text-xs rounded-full border transition-colors";
+  const activeClasses = "bg-slate-900 text-white border-slate-900";
+  const inactiveClasses =
+    "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200";
 
   return (
     <nav className="flex flex-wrap gap-2 items-center mb-4">
