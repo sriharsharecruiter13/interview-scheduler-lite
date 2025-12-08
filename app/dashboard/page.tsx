@@ -16,6 +16,7 @@ type WindowResponse = {
     candidateName?: string;
     title?: string;
     candidateRanges?: Range[];
+    execList?: string;
   };
   submissions?: Submission[];
 };
@@ -156,6 +157,7 @@ export default function DashboardPage() {
   const candidateName = data?.window?.candidateName ?? "Candidate";
   const candidateTitle = data?.window?.title ?? "";
   const candidateRanges = data?.window?.candidateRanges ?? [];
+  const execList = data?.window?.execList ?? "";
   const submissions = data?.submissions ?? [];
 
   const candidateWindowLabel = humanCandidateWindow(candidateRanges);
@@ -237,7 +239,7 @@ export default function DashboardPage() {
   );
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6">
+    <main className="min-h-screen bg-slate-50 text-slate-900 px-4 py-6">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Logo */}
         <div className="flex justify-end">
@@ -249,42 +251,55 @@ export default function DashboardPage() {
         {/* Header */}
         <header className="space-y-1">
           <h1 className="text-3xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-600">
             Live view of EA submissions and common 60-min windows for this
             candidate.
           </p>
         </header>
 
         {/* Candidate card */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 shadow-sm space-y-3">
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-wide text-slate-500">
               Candidate
             </div>
             <div className="text-lg font-semibold">{candidateName}</div>
             {candidateTitle && (
-              <div className="text-sm text-slate-300">{candidateTitle}</div>
+              <div className="text-sm text-slate-700">{candidateTitle}</div>
             )}
-            <div className="mt-3 text-sm font-semibold">
+            <div className="mt-3 text-sm font-semibold text-slate-800">
               Candidate availability
             </div>
-            <div className="text-sm text-slate-200">
+            <div className="text-sm text-slate-800">
               {candidateWindowLabel}
             </div>
           </div>
+
+          {execList && (
+            <div className="space-y-1">
+              <div className="text-sm font-semibold text-slate-800">
+                Execs for this request
+              </div>
+              <pre className="text-sm text-slate-800 whitespace-pre-wrap rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
+                {execList}
+              </pre>
+            </div>
+          )}
         </section>
 
         {/* EA submissions */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 space-y-3">
-          <h2 className="text-lg font-semibold">EA submissions</h2>
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 space-y-3 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900">
+            EA submissions
+          </h2>
           {loading && submissions.length === 0 ? (
-            <div className="text-sm text-slate-400">Loading…</div>
+            <div className="text-sm text-slate-500">Loading…</div>
           ) : submissions.length === 0 ? (
-            <div className="text-sm text-slate-400">No EA submissions yet.</div>
+            <div className="text-sm text-slate-500">No EA submissions yet.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm text-left">
-                <thead className="border-b border-slate-800 text-xs uppercase text-slate-400">
+                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
                   <tr>
                     <th className="py-2 pr-4">Exec</th>
                     <th className="py-2 pr-4">Submitted at</th>
@@ -295,15 +310,15 @@ export default function DashboardPage() {
                   {submissions.map((s, idx) => (
                     <tr
                       key={idx}
-                      className="border-b border-slate-800/60 last:border-0"
+                      className="border-b border-slate-100 last:border-0"
                     >
                       <td className="py-2 pr-4 whitespace-nowrap">
                         {s.execName}
                       </td>
-                      <td className="py-2 pr-4 whitespace-nowrap text-slate-400 text-xs">
+                      <td className="py-2 pr-4 whitespace-nowrap text-slate-500 text-xs">
                         {s.at ? new Date(s.at).toLocaleString() : "—"}
                       </td>
-                      <td className="py-2 pr-4 text-slate-200">
+                      <td className="py-2 pr-4 text-slate-800">
                         {s.ranges
                           .map((r) => {
                             const start = parseISO(r.start);
@@ -325,13 +340,13 @@ export default function DashboardPage() {
 
         {/* Exec availability grouped by day */}
         {Object.keys(groupedExec).length > 0 && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 space-y-3">
-            <h2 className="text-lg font-semibold">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 space-y-3 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">
               Exec availability so far (grouped by day)
             </h2>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm text-left">
-                <thead className="border-b border-slate-800 text-xs uppercase text-slate-400">
+                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
                   <tr>
                     <th className="py-2 pr-4">Date</th>
                     {execNames.map((name) => (
@@ -345,7 +360,7 @@ export default function DashboardPage() {
                   {Object.entries(groupedExec).map(([day, row]) => (
                     <tr
                       key={day}
-                      className="border-b border-slate-800/60 last:border-0"
+                      className="border-b border-slate-100 last:border-0"
                     >
                       <td className="py-2 pr-4 font-semibold">{day}</td>
                       {execNames.map((name) => (
@@ -364,8 +379,8 @@ export default function DashboardPage() {
         {/* Majority + next + ask to flex */}
         <section className="space-y-3">
           {/* Majority */}
-          <div className="rounded-2xl border border-blue-900/60 bg-blue-950/40 p-4 md:p-5">
-            <h2 className="text-sm font-semibold text-blue-200">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 md:p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-blue-900">
               Majority 60-min window
             </h2>
             {majoritySlot ? (
@@ -376,10 +391,10 @@ export default function DashboardPage() {
                 );
                 return (
                   <div className="mt-2 space-y-1">
-                    <div className="text-sm font-semibold">
+                    <div className="text-sm font-semibold text-blue-900">
                       {dateLabel} {timeLabel}
                     </div>
-                    <div className="text-xs text-blue-200">
+                    <div className="text-xs text-blue-800">
                       Aligned execs ({majoritySlot.execs.length}):{" "}
                       {majoritySlot.execs.join(", ")}
                     </div>
@@ -387,15 +402,15 @@ export default function DashboardPage() {
                 );
               })()
             ) : (
-              <div className="mt-2 text-sm text-blue-100">
+              <div className="mt-2 text-sm text-blue-900">
                 No common 60-min window found yet.
               </div>
             )}
           </div>
 
           {/* Next possible windows */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:p-5 space-y-2">
-            <h2 className="text-sm font-semibold text-slate-100">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 space-y-2 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">
               Next possible windows
             </h2>
             {nextSlots && nextSlots.length > 0 ? (
@@ -408,12 +423,12 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={idx}
-                      className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2"
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
                     >
-                      <div className="text-sm font-medium">
+                      <div className="text-sm font-medium text-slate-900">
                         {dateLabel} {timeLabel}
                       </div>
-                      <div className="text-xs text-slate-400">
+                      <div className="text-xs text-slate-600">
                         Aligned execs ({slot.execs.length}):{" "}
                         {slot.execs.join(", ")}
                       </div>
@@ -422,24 +437,24 @@ export default function DashboardPage() {
                 })}
               </div>
             ) : (
-              <div className="text-sm text-slate-400">
+              <div className="text-sm text-slate-600">
                 No additional strong windows yet.
               </div>
             )}
           </div>
 
           {/* Ask to flex */}
-          <div className="rounded-2xl border border-amber-700/60 bg-amber-950/40 p-4 md:p-5">
-            <h2 className="text-sm font-semibold text-amber-200">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 md:p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-amber-900">
               Ask to flex
             </h2>
             {majoritySlot && askToFlex.length > 0 ? (
-              <div className="mt-2 text-sm text-amber-100">
+              <div className="mt-2 text-sm text-amber-900">
                 Ask these execs if they can flex around the majority window:{" "}
                 <span className="font-medium">{askToFlex.join(", ")}</span>
               </div>
             ) : (
-              <div className="mt-2 text-sm text-amber-100">
+              <div className="mt-2 text-sm text-amber-900">
                 — All execs are aligned for the majority window.
               </div>
             )}

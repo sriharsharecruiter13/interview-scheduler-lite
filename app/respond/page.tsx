@@ -6,6 +6,16 @@ import AppNav from "@/components/AppNav";
 type Range = { start: string; end: string };
 type Submission = { execName: string; ranges: Range[]; at: string };
 
+type WindowResponse = {
+  window?: {
+    candidateName?: string;
+    title?: string;
+    candidateRanges?: Range[];
+    execList?: string;
+  };
+  submissions?: Submission[];
+};
+
 function humanRangeLocal(sISO: string, eISO: string) {
   const s = new Date(sISO),
     e = new Date(eISO);
@@ -79,6 +89,7 @@ export default function Respond() {
     },
   ]);
   const [candidateRanges, setCandidateRanges] = useState<Range[]>([]);
+  const [execList, setExecList] = useState("");
   const [subs, setSubs] = useState<Submission[]>([]);
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
@@ -87,27 +98,15 @@ export default function Respond() {
 
   async function load() {
     const r = await fetch(`/api/window`);
-    const d = await r.json();
+    const d = (await r.json()) as WindowResponse;
     setCandidateRanges(d?.window?.candidateRanges || []);
+    setExecList(d?.window?.execList || "");
     setSubs(d?.submissions || []);
-  }
-  async function loadAnalysis() {
-    try {
-      await fetch("/api/agent/run").then((r) => r.json());
-    } catch {
-      // ignore
-    }
   }
 
   useEffect(() => {
     load();
-    loadAnalysis();
-  }, []);
-  useEffect(() => {
-    const t = setInterval(() => {
-      load();
-      loadAnalysis();
-    }, 10000);
+    const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, []);
 
@@ -175,7 +174,6 @@ export default function Respond() {
         },
       ]);
       load();
-      loadAnalysis();
     } catch (e: any) {
       setErr(e.message || "Failed");
     }
@@ -197,7 +195,6 @@ export default function Respond() {
 
       setDone("Removed your availability.");
       load();
-      loadAnalysis();
     } catch (e: any) {
       setErr(e.message || "Failed");
     }
@@ -224,7 +221,7 @@ export default function Respond() {
   const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6">
+    <main className="min-h-screen bg-slate-50 text-slate-900 px-4 py-6">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Logo */}
         <div className="flex justify-end">
@@ -235,21 +232,38 @@ export default function Respond() {
 
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">EA availability submission</h1>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-600">
             Pick a date and 30-min slot, or choose “Custom” and type any time
             (e.g. 9:05 AM – 9:30 AM).
           </p>
         </header>
 
-        <section className="space-y-4 bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
-          {candidateRanges.length > 0 && (
-            <div className="space-y-1">
-              <div className="text-sm font-semibold">Candidate availability:</div>
-              <ul className="ml-4 text-sm">
-                {candidateRanges.map((r, i) => (
-                  <li key={i}>{humanRangeLocal(r.start, r.end)}</li>
-                ))}
-              </ul>
+        <section className="space-y-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          {/* Candidate availability + exec list */}
+          {(candidateRanges.length > 0 || execList) && (
+            <div className="space-y-3">
+              {candidateRanges.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold">
+                    Candidate availability:
+                  </div>
+                  <ul className="ml-4 text-sm text-slate-800">
+                    {candidateRanges.map((r, i) => (
+                      <li key={i}>{humanRangeLocal(r.start, r.end)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {execList && (
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold">
+                    Execs for this request:
+                  </div>
+                  <pre className="text-sm text-slate-800 whitespace-pre-wrap rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
+                    {execList}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
 
@@ -261,7 +275,7 @@ export default function Respond() {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-800 text-slate-400">
+                    <tr className="border-b border-slate-200 text-slate-500">
                       <th className="text-left py-2 pr-4">Date</th>
                       {execColumns.map((name) => (
                         <th key={name} className="text-left py-2 pr-4">
@@ -272,7 +286,7 @@ export default function Respond() {
                   </thead>
                   <tbody>
                     {Object.entries(grouped).map(([day, row]) => (
-                      <tr key={day} className="border-b border-slate-800/60">
+                      <tr key={day} className="border-b border-slate-100">
                         <td className="py-2 pr-4 whitespace-nowrap font-semibold">
                           {day}
                         </td>
@@ -289,32 +303,36 @@ export default function Respond() {
             </div>
           )}
 
+          {/* Exec name */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Exec name</label>
+            <label className="text-sm font-medium text-slate-800">
+              Exec name
+            </label>
             <input
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
               value={execName}
               onChange={(e) => setExecName(e.target.value)}
               placeholder="Exec full name"
             />
           </div>
 
+          {/* Time ranges */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">
+            <label className="text-sm font-medium text-slate-800">
               Add exec time ranges (date + 30-min dropdown or custom times)
             </label>
             {rows.map((r, i) => (
               <div
                 key={i}
-                className="space-y-2 border border-slate-800 rounded-lg p-3"
+                className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50"
               >
                 {/* Date */}
                 <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex flex-col flex-1">
-                    <span className="text-xs text-slate-400 mb-1">Date</span>
+                    <span className="text-xs text-slate-500 mb-1">Date</span>
                     <input
                       type="date"
-                      className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                       value={r.date}
                       onChange={(e) => updateRow(i, "date", e.target.value)}
                     />
@@ -326,10 +344,10 @@ export default function Respond() {
                   {/* Start */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">Start time</span>
+                      <span className="text-xs text-slate-500">Start time</span>
                       <button
                         type="button"
-                        className="text-[11px] text-sky-400"
+                        className="text-[11px] text-sky-600"
                         onClick={() =>
                           updateRow(
                             i,
@@ -345,7 +363,7 @@ export default function Respond() {
                     </div>
                     {r.startChoice === "dropdown" ? (
                       <select
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.startDropdown}
                         onChange={(e) =>
                           updateRow(i, "startDropdown", e.target.value)
@@ -361,7 +379,7 @@ export default function Respond() {
                     ) : (
                       <input
                         type="time"
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.startCustom}
                         onChange={(e) =>
                           updateRow(i, "startCustom", e.target.value)
@@ -373,10 +391,10 @@ export default function Respond() {
                   {/* End */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">End time</span>
+                      <span className="text-xs text-slate-500">End time</span>
                       <button
                         type="button"
-                        className="text-[11px] text-sky-400"
+                        className="text-[11px] text-sky-600"
                         onClick={() =>
                           updateRow(
                             i,
@@ -392,7 +410,7 @@ export default function Respond() {
                     </div>
                     {r.endChoice === "dropdown" ? (
                       <select
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.endDropdown}
                         onChange={(e) =>
                           updateRow(i, "endDropdown", e.target.value)
@@ -408,7 +426,7 @@ export default function Respond() {
                     ) : (
                       <input
                         type="time"
-                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.endCustom}
                         onChange={(e) =>
                           updateRow(i, "endCustom", e.target.value)
@@ -421,7 +439,7 @@ export default function Respond() {
                 <div className="flex justify-end">
                   <button
                     type="button"
-                    className="text-xs text-red-400"
+                    className="text-xs text-red-500"
                     onClick={() => removeRow(i)}
                   >
                     Remove range
@@ -430,7 +448,7 @@ export default function Respond() {
               </div>
             ))}
             <button
-              className="text-xs text-sky-400 hover:text-sky-300"
+              className="text-xs text-sky-600 hover:text-sky-500"
               type="button"
               onClick={addRow}
             >
@@ -438,9 +456,10 @@ export default function Respond() {
             </button>
           </div>
 
+          {/* Buttons */}
           <div className="flex flex-wrap gap-2">
             <button
-              className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white"
+              className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
               type="button"
               onClick={submit}
               disabled={!execName}
@@ -449,7 +468,7 @@ export default function Respond() {
             </button>
             <button
               type="button"
-              className="rounded-md border border-slate-700 px-4 py-1.5 text-sm text-slate-200"
+              className="rounded-md border border-slate-300 px-4 py-1.5 text-sm text-slate-800"
               onClick={removeMine}
             >
               Remove my availability
@@ -457,12 +476,12 @@ export default function Respond() {
           </div>
 
           {done && (
-            <div className="mt-2 rounded-md bg-emerald-900/40 px-3 py-2 text-xs text-emerald-200">
+            <div className="mt-2 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-800">
               {done}
             </div>
           )}
           {err && (
-            <div className="mt-2 rounded-md bg-red-900/40 px-3 py-2 text-xs text-red-200">
+            <div className="mt-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-800">
               {err}
             </div>
           )}
