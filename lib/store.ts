@@ -45,3 +45,45 @@ export async function getSubmissions(): Promise<EaSubmission[]> {
   }
   return localSubs;
 }
+// === Exec availability history log ===
+// This is used by /api/execs so schedulers can see past availability
+// across multiple requests, not just the current window.
+
+import { Redis as ExecHistoryRedisClient } from '@upstash/redis';
+
+const execHistoryRedis = ExecHistoryRedisClient.fromEnv();
+
+export type ExecHistoryRange = { start: string; end: string };
+
+export type ExecHistoryEntry = {
+  execName: string;
+  ranges: ExecHistoryRange[];
+  at: string; // when this availability was submitted
+  // If later you want to attach candidate info, you can add:
+  // candidateName?: string;
+  // title?: string;
+};
+
+const EXEC_HISTORY_KEY = 'exec_history_v1';
+
+export async function addExecHistoryEntry(entry: ExecHistoryEntry) {
+  await execHistoryRedis.lpush(EXEC_HISTORY_KEY, JSON.stringify(entry));
+  // keep only the latest 1000 entries to avoid unbounded growth
+  await execHistoryRedis.ltrim(EXEC_HISTORY_KEY, 0, 999);
+}
+
+export async function getExecHistoryEntries(): Promise<ExecHistoryEntry[]> {
+  const raw = await execHistoryRedis.lrange(EXEC_HISTORY_KEY, 0, -1);
+
+  const entries: ExecHistoryEntry[] = [];
+  for (const item of raw) {
+    try {
+      entries.push(JSON.parse(item as string));
+    } catch {
+      // ignore malformed rows
+    }
+  }
+
+  return entries;
+}
+
