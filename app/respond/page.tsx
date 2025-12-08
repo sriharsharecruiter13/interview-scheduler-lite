@@ -1,189 +1,511 @@
-'use client';
-import { useEffect, useMemo, useState } from 'react';
+"use client";
 
-type Range = { start:string; end:string };
-type Submission = { execName:string; ranges:Range[]; at:string };
+import { useEffect, useMemo, useState } from "react";
 
-function humanRangeLocal(sISO:string,eISO:string){
-  const s=new Date(sISO), e=new Date(eISO);
-  const dFmt=new Intl.DateTimeFormat(undefined,{ day:'2-digit', month:'short' });
-  const tFmt=new Intl.DateTimeFormat(undefined,{ hour:'numeric', minute:'2-digit' });
+type Range = { start: string; end: string };
+type Submission = { execName: string; ranges: Range[]; at: string };
+
+function humanRangeLocal(sISO: string, eISO: string) {
+  const s = new Date(sISO),
+    e = new Date(eISO);
+  const dFmt = new Intl.DateTimeFormat(undefined, {
+    day: "2-digit",
+    month: "short",
+  });
+  const tFmt = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
   return `${dFmt.format(s)} ${tFmt.format(s)} – ${tFmt.format(e)}`;
 }
-function dayKey(iso:string){
-  return new Date(iso).toLocaleDateString(undefined,{ day:'2-digit', month:'short' });
+function dayKey(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+  });
 }
 
-export default function Respond(){
-  const [execName,setExecName]=useState('');
-  const [rows,setRows]=useState<Range[]>([{start:'',end:''}]);
-  const [candidateRanges,setCandidateRanges]=useState<Range[]>([]);
-  const [subs,setSubs]=useState<Submission[]>([]);
-  const [done,setDone]=useState(''); const [err,setErr]=useState('');
-  const [analysis,setAnalysis]=useState<any>(null);
+type UIRange = {
+  date: string;
+  startChoice: "dropdown" | "custom";
+  endChoice: "dropdown" | "custom";
+  startDropdown: string;
+  endDropdown: string;
+  startCustom: string;
+  endCustom: string;
+};
 
-  async function load(){
-    const r=await fetch(`/api/window`); const d=await r.json();
-    setCandidateRanges(d?.window?.candidateRanges||[]);
-    setSubs((d?.submissions||[]));
+function buildTimeOptions(fromHour = 7, toHour = 20): string[] {
+  const opts: string[] = [];
+  for (let h = fromHour; h <= toHour; h++) {
+    for (const m of [0, 30]) {
+      const hh = String(h).padStart(2, "0");
+      const mm = String(m).padStart(2, "0");
+      opts.push(`${hh}:${mm}`);
+    }
   }
-  async function loadAnalysis(){
-    const r=await fetch('/api/agent/run'); const j=await r.json().catch(()=>null);
-    if (j?.ok || j?.analysis) setAnalysis(j.analysis || j);
+  return opts;
+}
+
+function toISO(date: string, time: string): string {
+  if (!date || !time) return "";
+  return `${date}T${time}`;
+}
+
+export default function Respond() {
+  const [execName, setExecName] = useState("");
+  const [rows, setRows] = useState<UIRange[]>([
+    {
+      date: "",
+      startChoice: "dropdown",
+      endChoice: "dropdown",
+      startDropdown: "",
+      endDropdown: "",
+      startCustom: "",
+      endCustom: "",
+    },
+  ]);
+  const [candidateRanges, setCandidateRanges] = useState<Range[]>([]);
+  const [subs, setSubs] = useState<Submission[]>([]);
+  const [done, setDone] = useState("");
+  const [err, setErr] = useState("");
+
+  const timeOptions = useMemo(() => buildTimeOptions(), []);
+
+  async function load() {
+    const r = await fetch(`/api/window`);
+    const d = await r.json();
+    setCandidateRanges(d?.window?.candidateRanges || []);
+    setSubs(d?.submissions || []);
+  }
+  async function loadAnalysis() {
+    // keep to preserve existing behavior, but ignore analysis in UI
+    try {
+      await fetch("/api/agent/run").then((r) => r.json());
+    } catch {
+      // ignore
+    }
   }
 
-  useEffect(()=>{ load(); loadAnalysis(); },[]);
-  useEffect(()=>{
-    const t=setInterval(()=>{ load(); loadAnalysis(); }, 10000);
-    return ()=>clearInterval(t);
-  },[]);
+  useEffect(() => {
+    load();
+    loadAnalysis();
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => {
+      load();
+      loadAnalysis();
+    }, 10000);
+    return () => clearInterval(t);
+  }, []);
 
-  function setRow(i:number,k:'start'|'end',v:string){
-    setRows(list=>list.map((r,idx)=>idx===i?{...r,[k]:v}:r));
+  function updateRow<K extends keyof UIRange>(
+    idx: number,
+    key: K,
+    value: UIRange[K]
+  ) {
+    setRows((list) =>
+      list.map((row, i) => (i === idx ? { ...row, [key]: value } : row))
+    );
   }
-  function addRow(){ setRows(list=>[...list,{start:'',end:''}]); }
-  function removeRow(i:number){ setRows(list=>list.filter((_,idx)=>idx!==i)); }
 
-  async function submit(){
-    setErr(''); setDone('');
-    try{
-      const clean = rows
-        .filter(r=>r.start && r.end)
-        .filter(r=> new Date(r.end) > new Date(r.start))
-        .map(r=>({ start:r.start, end:r.end }));
-      if (!execName) throw new Error('Enter Exec name.');
-      if (clean.length===0) throw new Error('Add at least one valid time range.');
-      const res=await fetch('/api/ea/submit',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ execName, ranges:clean })});
-      if(!res.ok){ const j=await res.json().catch(()=>null); throw new Error(j?.error || 'Failed to save'); }
-      setDone('Saved. Your previous availability (if any) was replaced.');
-      setRows([{start:'',end:''}]);
-      load(); loadAnalysis();
-    }catch(e:any){ setErr(e.message||'Failed'); }
+  function addRow() {
+    setRows((list) => [
+      ...list,
+      {
+        date: "",
+        startChoice: "dropdown",
+        endChoice: "dropdown",
+        startDropdown: "",
+        endDropdown: "",
+        startCustom: "",
+        endCustom: "",
+      },
+    ]);
   }
-  async function removeMine(){
-    setErr(''); setDone('');
-    try{
-      if (!execName) throw new Error('Enter Exec name to remove it.');
-      const res=await fetch('/api/ea/submit',{ method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ execName })});
-      if(!res.ok) throw new Error('Failed to remove');
-      setDone('Removed your availability.');
-      load(); loadAnalysis();
-    }catch(e:any){ setErr(e.message||'Failed'); }
+  function removeRow(i: number) {
+    setRows((list) => list.filter((_, idx) => idx !== i));
+  }
+
+  function uiRowToRange(r: UIRange): Range | null {
+    const startTime =
+      r.startChoice === "dropdown" ? r.startDropdown : r.startCustom;
+    const endTime =
+      r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
+    const startISO = toISO(r.date, startTime);
+    const endISO = toISO(r.date, endTime);
+    if (!startISO || !endISO) return null;
+    if (new Date(endISO) <= new Date(startISO)) return null;
+    return { start: startISO, end: endISO };
+  }
+
+  async function submit() {
+    setErr("");
+    setDone("");
+    try {
+      const clean: Range[] = rows
+        .map(uiRowToRange)
+        .filter((r): r is Range => !!r);
+
+      if (!execName) throw new Error("Enter Exec name.");
+      if (clean.length === 0)
+        throw new Error("Add at least one valid time range.");
+
+      const res = await fetch("/api/ea/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ execName, ranges: clean }),
+      });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.error || "Failed to save");
+      }
+
+      setDone("Saved. Your previous availability (if any) was replaced.");
+      setRows([
+        {
+          date: "",
+          startChoice: "dropdown",
+          endChoice: "dropdown",
+          startDropdown: "",
+          endDropdown: "",
+          startCustom: "",
+          endCustom: "",
+        },
+      ]);
+      load();
+      loadAnalysis();
+    } catch (e: any) {
+      setErr(e.message || "Failed");
+    }
+  }
+
+  async function removeMine() {
+    setErr("");
+    setDone("");
+    try {
+      if (!execName) throw new Error("Enter Exec name to remove it.");
+
+      const res = await fetch("/api/ea/submit", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ execName }),
+      });
+
+      if (!res.ok) throw new Error("Failed to remove");
+
+      setDone("Removed your availability.");
+      load();
+      loadAnalysis();
+    } catch (e: any) {
+      setErr(e.message || "Failed");
+    }
   }
 
   // group exec availability by day (for the table)
-  const grouped=useMemo(()=>{
-    const map:Record<string,Record<string,string[]>>={};
-    for(const s of subs){
-      for(const r of s.ranges||[]){
-        const day=dayKey(r.start);
+  const grouped = useMemo(() => {
+    const map: Record<string, Record<string, string[]>> = {};
+    for (const s of subs) {
+      for (const r of s.ranges || []) {
+        const day = dayKey(r.start);
         map[day] ||= {};
         map[day][s.execName] ||= [];
-        const tf=(x:string)=> new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(new Date(x));
+        const tf = (x: string) =>
+          new Intl.DateTimeFormat(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(new Date(x));
         map[day][s.execName].push(`${tf(r.start)}–${tf(r.end)}`);
       }
     }
     return map;
-  },[subs]);
-  const execColumns = Array.from(new Set(subs.map(s=>s.execName)));
+  }, [subs]);
+
+  const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
 
   return (
-    <div style={{maxWidth:960,margin:'20px auto',padding:'16px'}}>
-      <nav style={{display:'flex',gap:12,alignItems:'center',marginBottom:16}}>
-        <a href="/" className="link">Scheduler</a>
-        <a href="/respond" className="link">EA page</a>
-        <a href="/dashboard" className="link">Dashboard</a>
-      </nav>
-
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:8}}>EA availability submission</h1>
-
-      {candidateRanges.length>0 && (
-        <div className="card" style={{marginBottom:12}}>
-          <b>Candidate availability:</b>
-          <ul style={{margin:'6px 0 0 16px'}}>
-            {candidateRanges.map((r,i)=><li key={i}>{humanRangeLocal(r.start,r.end)}</li>)}
-          </ul>
+    <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Logo */}
+        <div className="flex justify-end">
+          <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
-      )}
 
-      {/* Moved: Exec availability table RIGHT UNDER candidate availability */}
-      {execColumns.length>0 && Object.keys(grouped).length>0 && (
-        <div className="card" style={{marginBottom:12}}>
-          <b>Exec availability so far (grouped by day)</b>
-          <div className="tableWrap">
-            <table className="avail">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  {execColumns.map(name=><th key={name}>{name}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(grouped).map(([day,row])=>(
-                  <tr key={day}>
-                    <td className="day">{day}</td>
-                    {execColumns.map(name=><td key={name}>{(row as any)[name]?.join(', ')||'—'}</td>)}
-                  </tr>
+        {/* Nav row */}
+        <nav className="flex flex-wrap gap-2 items-center mb-4">
+          <a
+            href="/"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Scheduler
+          </a>
+          <a
+            href="/respond"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-50 text-slate-900"
+          >
+            EA page
+          </a>
+          <a
+            href="/dashboard"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Dashboard
+          </a>
+          <a
+            href="/candidates"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Candidate log
+          </a>
+          <a
+            href="/execs"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Exec availability
+          </a>
+        </nav>
+
+        <header className="space-y-1">
+          <h1 className="text-2xl font-semibold">EA availability submission</h1>
+          <p className="text-sm text-slate-400">
+            Pick a date and 30-min slot, or choose “Custom” and type any time
+            (e.g. 9:05 AM – 9:30 AM).
+          </p>
+        </header>
+
+        <section className="space-y-4 bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
+          {candidateRanges.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-sm font-semibold">Candidate availability:</div>
+              <ul className="ml-4 text-sm">
+                {candidateRanges.map((r, i) => (
+                  <li key={i}>{humanRangeLocal(r.start, r.end)}</li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+            </div>
+          )}
+
+          {execColumns.length > 0 && Object.keys(grouped).length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-semibold">
+                Exec availability so far (grouped by day)
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400">
+                      <th className="text-left py-2 pr-4">Date</th>
+                      {execColumns.map((name) => (
+                        <th key={name} className="text-left py-2 pr-4">
+                          {name}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(grouped).map(([day, row]) => (
+                      <tr key={day} className="border-b border-slate-800/60">
+                        <td className="py-2 pr-4 whitespace-nowrap font-semibold">
+                          {day}
+                        </td>
+                        {execColumns.map((name) => (
+                          <td key={name} className="py-2 pr-4">
+                            {(row as any)[name]?.join(", ") || "—"}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Exec name</label>
+            <input
+              className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+              value={execName}
+              onChange={(e) => setExecName(e.target.value)}
+              placeholder="Exec full name"
+            />
           </div>
-        </div>
-      )}
 
-      {/* Common windows (60-min) with quorum ≥ 2 */}
-      {analysis?.sixty?.filter((w:any)=> (w.execs||[]).length>=2).length>0 && (
-        <div className="card" style={{marginBottom:12, background:'#f8fafc'}}>
-          <b>Common 60-min windows (most execs first)</b>
-          <ul style={{margin:'6px 0 0 16px'}}>
-            {analysis.sixty
-              .filter((w:any)=> (w.execs||[]).length>=2)
-              .slice(0,5)
-              .map((w:any,i:number)=>(
-                <li key={i}>
-                  {humanRangeLocal(w.start,w.end)} — <span style={{color:'#0b2a8a'}}>{w.execs.join(', ')}</span>
-                </li>
-              ))}
-          </ul>
-        </div>
-      )}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Add exec time ranges (date + 30-min dropdown or custom times)
+            </label>
+            {rows.map((r, i) => (
+              <div
+                key={i}
+                className="space-y-2 border border-slate-800 rounded-lg p-3"
+              >
+                {/* Date */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="flex flex-col flex-1">
+                    <span className="text-xs text-slate-400 mb-1">Date</span>
+                    <input
+                      type="date"
+                      className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                      value={r.date}
+                      onChange={(e) => updateRow(i, "date", e.target.value)}
+                    />
+                  </div>
+                </div>
 
-      <label>Exec name</label>
-      <input className="input" value={execName} onChange={e=>setExecName(e.target.value)} />
+                {/* Start / End */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Start */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">Start time</span>
+                      <button
+                        type="button"
+                        className="text-[11px] text-sky-400"
+                        onClick={() =>
+                          updateRow(
+                            i,
+                            "startChoice",
+                            r.startChoice === "dropdown" ? "custom" : "dropdown"
+                          )
+                        }
+                      >
+                        {r.startChoice === "dropdown" ? "Use custom" : "Use dropdown"}
+                      </button>
+                    </div>
+                    {r.startChoice === "dropdown" ? (
+                      <select
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.startDropdown}
+                        onChange={(e) =>
+                          updateRow(i, "startDropdown", e.target.value)
+                        }
+                      >
+                        <option value="">Select…</option>
+                        {timeOptions.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="time"
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.startCustom}
+                        onChange={(e) =>
+                          updateRow(i, "startCustom", e.target.value)
+                        }
+                      />
+                    )}
+                  </div>
 
-      <label style={{marginTop:10}}>Add exec time ranges (15-min steps)</label>
-      {rows.map((r,i)=>(
-        <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,marginTop:8}}>
-          <input className="input" type="datetime-local" step="900" value={r.start} onChange={e=>setRow(i,'start',e.target.value)} />
-          <input className="input" type="datetime-local" step="900" value={r.end} onChange={e=>setRow(i,'end',e.target.value)} />
-          <button className="btn" onClick={()=>removeRow(i)}>Remove</button>
-        </div>
-      ))}
-      <button className="btn" onClick={addRow} style={{marginTop:8}}>Add another range</button>
+                  {/* End */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">End time</span>
+                      <button
+                        type="button"
+                        className="text-[11px] text-sky-400"
+                        onClick={() =>
+                          updateRow(
+                            i,
+                            "endChoice",
+                            r.endChoice === "dropdown" ? "custom" : "dropdown"
+                          )
+                        }
+                      >
+                        {r.endChoice === "dropdown" ? "Use custom" : "Use dropdown"}
+                      </button>
+                    </div>
+                    {r.endChoice === "dropdown" ? (
+                      <select
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.endDropdown}
+                        onChange={(e) =>
+                          updateRow(i, "endDropdown", e.target.value)
+                        }
+                      >
+                        <option value="">Select…</option>
+                        {timeOptions.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="time"
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.endCustom}
+                        onChange={(e) =>
+                          updateRow(i, "endCustom", e.target.value)
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
 
-      <div style={{display:'flex',gap:8,marginTop:12}}>
-        <button className="submit" onClick={submit} disabled={!execName}>Save / Replace my availability</button>
-        <button className="btn" onClick={removeMine}>Remove my availability</button>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="text-xs text-red-400"
+                    onClick={() => removeRow(i)}
+                  >
+                    Remove range
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              className="text-xs text-sky-400 hover:text-sky-300"
+              type="button"
+              onClick={addRow}
+            >
+              Add another range
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white"
+              type="button"
+              onClick={submit}
+              disabled={!execName}
+            >
+              Save / Replace my availability
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-slate-700 px-4 py-1.5 text-sm text-slate-200"
+              onClick={removeMine}
+            >
+              Remove my availability
+            </button>
+          </div>
+
+          {done && (
+            <div className="mt-2 rounded-md bg-emerald-900/40 px-3 py-2 text-xs text-emerald-200">
+              {done}
+            </div>
+          )}
+          {err && (
+            <div className="mt-2 rounded-md bg-red-900/40 px-3 py-2 text-xs text-red-200">
+              {err}
+            </div>
+          )}
+        </section>
       </div>
-
-      {done && <div className="ok" style={{marginTop:12}}>{done}</div>}
-      {err && <div className="err" style={{marginTop:12}}>{err}</div>}
-
-      <style jsx>{`
-        .card{border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#fff;}
-        .tableWrap{overflow-x:auto;margin-top:8px}
-        table.avail{width:100%;border-collapse:collapse;font-size:14px}
-        th,td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left}
-        th{background:#f9fafb}
-        .day{font-weight:600;white-space:nowrap}
-        label{display:block;font-weight:600;margin:6px 0;}
-        .input{width:100%;border:1px solid #d1d5db;padding:10px;border-radius:10px;}
-        .btn{border:1px solid #d1d5db;background:#fff;padding:8px 12px;border-radius:10px;}
-        .submit{background:#2563eb;color:#fff;font-weight:700;padding:10px 16px;border-radius:10px;}
-        .ok{background:#ecfdf5;color:#065f46;padding:10px;border-radius:10px;}
-        .err{background:#fef2f2;color:#991b1b;padding:10px;border-radius:10px;}
-        .link{padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;color:#111;background:#fff}
-      `}</style>
-    </div>
+    </main>
   );
 }
+

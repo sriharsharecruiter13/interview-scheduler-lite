@@ -1,108 +1,538 @@
-'use client';
-import { useState } from 'react';
+"use client";
 
-type Range = { start:string; end:string };
-type EAContact = { email:string; execName:string };
+import { useState } from "react";
 
-export default function Scheduler(){
-  const [candidateName,setCandidateName]=useState('');
-  const [title,setTitle]=useState('');
-  const [candidateRanges,setCandidateRanges]=useState<Range[]>([{start:'',end:''}]);
-  const [eaDirectory,setEaDirectory]=useState<EAContact[]>([{email:'',execName:''}]);
+type Range = { start: string; end: string };
 
-  const [link,setLink]=useState('');
-  const [dash,setDash]=useState('');      // <-- define setDash here
-  const [msg,setMsg]=useState(''); const [err,setErr]=useState('');
+type UIRange = {
+  date: string;
+  startChoice: "dropdown" | "custom";
+  endChoice: "dropdown" | "custom";
+  startDropdown: string;
+  endDropdown: string;
+  startCustom: string;
+  endCustom: string;
+};
 
-  function setCR(i:number,k:'start'|'end',v:string){
-    setCandidateRanges(list=>list.map((r,idx)=>idx===i?{...r,[k]:v}:r));
+type EAEntry = { email: string };
+
+type WindowResponse = {
+  ok?: boolean;
+  eaLink?: string;
+  dashboard?: string;
+};
+
+const CANDIDATE_LOG_KEY = "candidateLog";
+
+function buildTimeOptions(fromHour = 7, toHour = 20): string[] {
+  const opts: string[] = [];
+  for (let h = fromHour; h <= toHour; h++) {
+    for (const m of [0, 30]) {
+      const hh = String(h).padStart(2, "0");
+      const mm = String(m).padStart(2, "0");
+      opts.push(`${hh}:${mm}`);
+    }
   }
-  function addCR(){ setCandidateRanges(list=>[...list,{start:'',end:''}]); }
-  function rmCR(i:number){ setCandidateRanges(list=>list.filter((_,idx)=>idx!==i)); }
+  return opts;
+}
 
-  function setEA(i:number,k:'email'|'execName',v:string){
-    setEaDirectory(list=>list.map((r,idx)=>idx===i?{...r,[k]:v}:r));
+function toISO(date: string, time: string): string {
+  if (!date || !time) return "";
+  return `${date}T${time}`;
+}
+
+function uiRowToRange(r: UIRange): Range | null {
+  const startTime =
+    r.startChoice === "dropdown" ? r.startDropdown : r.startCustom;
+  const endTime =
+    r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
+
+  const startISO = toISO(r.date, startTime);
+  const endISO = toISO(r.date, endTime);
+
+  if (!startISO || !endISO) return null;
+  if (new Date(endISO) <= new Date(startISO)) return null;
+
+  return { start: startISO, end: endISO };
+}
+
+function appendCandidateLog(entry: {
+  candidateName: string;
+  title: string;
+  schedulerUrl?: string;
+}) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(CANDIDATE_LOG_KEY);
+    const existing = raw ? JSON.parse(raw) : [];
+    const list = Array.isArray(existing) ? existing : [];
+    const createdAt = new Date().toISOString();
+
+    list.push({
+      id: `${entry.candidateName}-${createdAt}`,
+      candidateName: entry.candidateName,
+      title: entry.title,
+      schedulerUrl: entry.schedulerUrl,
+      createdAt,
+    });
+
+    window.localStorage.setItem(CANDIDATE_LOG_KEY, JSON.stringify(list));
+  } catch {
+    // ignore
   }
-  function addEA(){ setEaDirectory(list=>[...list,{email:'',execName:''}]); }
-  function rmEA(i:number){ setEaDirectory(list=>list.filter((_,idx)=>idx!==i)); }
+}
 
-  async function submit(){
-    setMsg(''); setErr(''); setLink(''); setDash('');
-    try{
-      const cleanRanges = candidateRanges.filter(r=>r.start && r.end);
-      const cleanEAs = eaDirectory.filter(e=>e.email && e.execName);
-      if (!candidateName || !title || cleanRanges.length===0) throw new Error('Fill candidate, title, and at least one candidate range.');
-      const r = await fetch('/api/window',{ method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ candidateName, title, candidateRanges: cleanRanges, eaDirectory: cleanEAs })
+export default function SchedulerPage() {
+  const [candidateName, setCandidateName] = useState("");
+  const [title, setTitle] = useState("");
+  const [ranges, setRanges] = useState<UIRange[]>([
+    {
+      date: "",
+      startChoice: "dropdown",
+      endChoice: "dropdown",
+      startDropdown: "",
+      endDropdown: "",
+      startCustom: "",
+      endCustom: "",
+    },
+  ]);
+  const [eaList, setEaList] = useState<EAEntry[]>([{ email: "" }]);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [links, setLinks] = useState<{ eaLink?: string; dashboard?: string }>(
+    {}
+  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const timeOptions = buildTimeOptions();
+
+  function updateRange<K extends keyof UIRange>(
+    idx: number,
+    key: K,
+    value: UIRange[K]
+  ) {
+    setRanges((list) =>
+      list.map((r, i) => (i === idx ? { ...r, [key]: value } : r))
+    );
+  }
+
+  function addRange() {
+    setRanges((list) => [
+      ...list,
+      {
+        date: "",
+        startChoice: "dropdown",
+        endChoice: "dropdown",
+        startDropdown: "",
+        endDropdown: "",
+        startCustom: "",
+        endCustom: "",
+      },
+    ]);
+  }
+
+  function removeRange(idx: number) {
+    setRanges((list) => list.filter((_, i) => i !== idx));
+  }
+
+  function updateEa(idx: number, email: string) {
+    setEaList((list) => list.map((e, i) => (i === idx ? { email } : e)));
+  }
+
+  function addEaRow() {
+    setEaList((list) => [...list, { email: "" }]);
+  }
+
+  function removeEaRow(idx: number) {
+    setEaList((list) => list.filter((_, i) => i !== idx));
+  }
+
+  async function submit() {
+    setStatus(null);
+    setError(null);
+    setLinks({});
+    try {
+      if (!candidateName.trim()) {
+        throw new Error("Enter candidate name.");
+      }
+
+      const cleanRanges: Range[] = ranges
+        .map(uiRowToRange)
+        .filter((r): r is Range => !!r);
+
+      if (cleanRanges.length === 0) {
+        throw new Error("Add at least one valid candidate time range.");
+      }
+
+      const eaDirectory = eaList
+        .map((e) => e.email.trim())
+        .filter(Boolean)
+        .map((email) => ({ email }));
+
+      setIsSubmitting(true);
+
+      const res = await fetch("/api/window", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateName,
+          title,
+          candidateRanges: cleanRanges,
+          eaDirectory,
+        }),
       });
-      const d = await r.json();
-      if (!r.ok || !d?.ok) throw new Error(d?.error || 'Failed');
-      setLink(d.eaLink);
-      setDash(d.dashboard);   // <-- now setDash is defined and used
-      setMsg('Request created. Share the links below.');
-    }catch(e:any){ setErr(e.message||'Failed'); }
+
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as WindowResponse;
+        throw new Error((j as any)?.error || "Failed to create window");
+      }
+
+      const j = (await res.json()) as WindowResponse;
+      setStatus("Scheduler window created.");
+      setLinks({ eaLink: j.eaLink, dashboard: j.dashboard });
+
+      // log candidate in localStorage for Candidate log page
+      appendCandidateLog({
+        candidateName,
+        title,
+        schedulerUrl: typeof window !== "undefined" ? window.location.href : "",
+      });
+    } catch (e: any) {
+      setError(e.message || "Failed to save");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
-    <div style={{maxWidth:960,margin:'20px auto',padding:'16px'}}>
-      <nav style={{display:'flex',gap:12,alignItems:'center',marginBottom:16}}>
-        <a href="/" className="link">Scheduler</a>
-        <a href="/respond" className="link">EA page</a>
-        <a href="/dashboard" className="link">Dashboard</a>
-      </nav>
-
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:8}}>Interview Scheduler</h1>
-
-      <label>Candidate name</label>
-      <input className="input" value={candidateName} onChange={e=>setCandidateName(e.target.value)} />
-
-      <label style={{marginTop:8}}>Title</label>
-      <input className="input" value={title} onChange={e=>setTitle(e.target.value)} />
-
-      <label style={{marginTop:8}}>Candidate availability (15-min increments)</label>
-      {candidateRanges.map((r,i)=>(
-        <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,marginTop:6}}>
-          <input className="input" type="datetime-local" step="900" value={r.start} onChange={e=>setCR(i,'start',e.target.value)} />
-          <input className="input" type="datetime-local" step="900" value={r.end} onChange={e=>setCR(i,'end',e.target.value)} />
-          <button className="btn" onClick={()=>rmCR(i)}>Remove</button>
+    <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Logo */}
+        <div className="flex justify-end">
+          <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
-      ))}
-      <button className="btn" onClick={addCR} style={{marginTop:6}}>Add another range</button>
 
-      <div className="card" style={{marginTop:12}}>
-        <b>EA directory</b>
-        {eaDirectory.map((e,i)=>(
-          <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,marginTop:6}}>
-            <input className="input" placeholder="Exec name" value={e.execName} onChange={ev=>setEA(i,'execName',ev.target.value)} />
-            <input className="input" placeholder="EA email" value={e.email} onChange={ev=>setEA(i,'email',ev.target.value)} />
-            <button className="btn" onClick={()=>rmEA(i)}>Remove</button>
+        {/* Nav row */}
+        <nav className="flex flex-wrap gap-2 items-center mb-4">
+          <a
+            href="/"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-50 text-slate-900"
+          >
+            Scheduler
+          </a>
+          <a
+            href="/respond"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            EA page
+          </a>
+          <a
+            href="/dashboard"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Dashboard
+          </a>
+          <a
+            href="/candidates"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Candidate log
+          </a>
+          <a
+            href="/execs"
+            className="px-3 py-1.5 text-xs rounded-full border border-slate-700 bg-slate-900 text-slate-50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Exec availability
+          </a>
+        </nav>
+
+        <header className="space-y-1">
+          <h1 className="text-2xl font-semibold">Exec Scheduling – Scheduler</h1>
+          <p className="text-sm text-slate-400">
+            Enter the candidate details and availability. EAs will submit exec
+            availability against this window.
+          </p>
+        </header>
+
+        <section className="space-y-4 bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
+          {/* Candidate info */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Candidate name</label>
+                <input
+                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                  value={candidateName}
+                  onChange={(e) => setCandidateName(e.target.value)}
+                  placeholder="Candidate full name"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Role / Title</label>
+                <input
+                  className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Role (e.g. VP Product)"
+                />
+              </div>
+            </div>
           </div>
-        ))}
-        <button className="btn" onClick={addEA} style={{marginTop:6}}>Add exec + EA</button>
+
+          {/* Candidate ranges */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Candidate availability (date + 30-min dropdown or custom times)
+            </label>
+            {ranges.map((r, i) => (
+              <div
+                key={i}
+                className="space-y-2 border border-slate-800 rounded-lg p-3"
+              >
+                {/* Date */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="flex flex-col flex-1">
+                    <span className="text-xs text-slate-400 mb-1">Date</span>
+                    <input
+                      type="date"
+                      className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                      value={r.date}
+                      onChange={(e) =>
+                        updateRange(i, "date", e.target.value)
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* Start / End */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Start */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">Start time</span>
+                      <button
+                        type="button"
+                        className="text-[11px] text-sky-400"
+                        onClick={() =>
+                          updateRange(
+                            i,
+                            "startChoice",
+                            r.startChoice === "dropdown"
+                              ? "custom"
+                              : "dropdown"
+                          )
+                        }
+                      >
+                        {r.startChoice === "dropdown"
+                          ? "Use custom"
+                          : "Use dropdown"}
+                      </button>
+                    </div>
+                    {r.startChoice === "dropdown" ? (
+                      <select
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.startDropdown}
+                        onChange={(e) =>
+                          updateRange(
+                            i,
+                            "startDropdown",
+                            e.target.value
+                          )
+                        }
+                      >
+                        <option value="">Select…</option>
+                        {timeOptions.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="time"
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.startCustom}
+                        onChange={(e) =>
+                          updateRange(
+                            i,
+                            "startCustom",
+                            e.target.value
+                          )
+                        }
+                      />
+                    )}
+                  </div>
+
+                  {/* End */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">End time</span>
+                      <button
+                        type="button"
+                        className="text-[11px] text-sky-400"
+                        onClick={() =>
+                          updateRange(
+                            i,
+                            "endChoice",
+                            r.endChoice === "dropdown"
+                              ? "custom"
+                              : "dropdown"
+                          )
+                        }
+                      >
+                        {r.endChoice === "dropdown"
+                          ? "Use custom"
+                          : "Use dropdown"}
+                      </button>
+                    </div>
+                    {r.endChoice === "dropdown" ? (
+                      <select
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.endDropdown}
+                        onChange={(e) =>
+                          updateRange(
+                            i,
+                            "endDropdown",
+                            e.target.value
+                          )
+                        }
+                      >
+                        <option value="">Select…</option>
+                        {timeOptions.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="time"
+                        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                        value={r.endCustom}
+                        onChange={(e) =>
+                          updateRange(
+                            i,
+                            "endCustom",
+                            e.target.value
+                          )
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="text-xs text-red-400"
+                    onClick={() => removeRange(i)}
+                  >
+                    Remove range
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="text-xs text-sky-400 hover:text-sky-300"
+              onClick={addRange}
+            >
+              Add another range
+            </button>
+          </div>
+
+          {/* EA directory */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              EA directory (optional – used to send EA links)
+            </label>
+            {eaList.map((ea, idx) => (
+              <div key={idx} className="flex gap-2 mb-1">
+                <input
+                  className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-50"
+                  placeholder="EA email"
+                  value={ea.email}
+                  onChange={(e) => updateEa(idx, e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="text-xs text-red-400"
+                  onClick={() => removeEaRow(idx)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="text-xs text-sky-400 hover:text-sky-300"
+              onClick={addEaRow}
+            >
+              Add another EA
+            </button>
+          </div>
+
+          {/* Actions & status */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              type="button"
+              className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
+              onClick={submit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Creating..." : "Create window"}
+            </button>
+
+            {status && (
+              <span className="text-xs text-emerald-300">{status}</span>
+            )}
+            {error && (
+              <span className="text-xs text-red-300">{error}</span>
+            )}
+          </div>
+
+          {/* Links */}
+          {(links.eaLink || links.dashboard) && (
+            <div className="mt-3 space-y-1 text-sm">
+              {links.eaLink && (
+                <div>
+                  EA link:{" "}
+                  <a
+                    href={links.eaLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-400 underline"
+                  >
+                    Open EA page
+                  </a>
+                </div>
+              )}
+              {links.dashboard && (
+                <div>
+                  Dashboard:{" "}
+                  <a
+                    href={links.dashboard}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-400 underline"
+                  >
+                    Open dashboard
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
       </div>
-
-      <button className="submit" onClick={submit} style={{marginTop:12}}>Create request</button>
-
-      {(link || dash) && (
-        <div className="card" style={{marginTop:12}}>
-          {link && <div>EA page: <a href={link} target="_blank" rel="noreferrer">{link}</a></div>}
-          {dash && <div>Dashboard: <a href={dash} target="_blank" rel="noreferrer">{dash}</a></div>}
-        </div>
-      )}
-
-      {msg && <div className="ok" style={{marginTop:12}}>{msg}</div>}
-      {err && <div className="err" style={{marginTop:12}}>{err}</div>}
-
-      <style jsx>{`
-        .link{padding:6px 10px;border:1px solid #bfdbfe;border-radius:8px;text-decoration:none;color:#1e3a8a;background:#eff6ff}
-        label{display:block;font-weight:600;margin:6px 0;}
-        .input{width:100%;border:1px solid #dbeafe;padding:10px;border-radius:10px;}
-        .btn{border:1px solid #dbeafe;background:#fff;padding:8px 12px;border-radius:10px;}
-        .submit{background:#2563eb;color:#fff;font-weight:700;padding:10px 16px;border-radius:10px;}
-        .card{border:1px solid #dbeafe;border-radius:12px;padding:10px;background:#fff}
-        .ok{background:#ecfdf5;color:#065f46;padding:10px;border-radius:10px;}
-        .err{background:#fef2f2;color:#991b1b;padding:10px;border-radius:10px;}
-      `}</style>
-    </div>
+    </main>
   );
 }
+

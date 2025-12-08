@@ -1,226 +1,467 @@
-'use client';
-import { useEffect,useMemo,useState } from 'react';
+"use client";
 
-type Range={start:string;end:string};
-type Submission={execName:string;ranges?:Range[];at:string};
-type EAContact={email:string;execName:string};
-type WindowData={candidateName:string;title:string;candidateRanges:Range[];eaDirectory?:EAContact[]};
+import { useEffect, useMemo, useState } from "react";
 
-const MS15=15*60*1000,MS60=60*60*1000,MS30=30*60*1000;
-const t=(s:string)=>new Date(s).getTime();
-const iso=(ms:number)=>new Date(ms).toISOString();
-const dayKey=(d:Date)=> new Intl.DateTimeFormat(undefined,{month:'short',day:'2-digit'}).format(d);
-const timeFmt=(d:Date)=> new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(d);
-function humanRangeLocal(s:string,e:string){
-  const S=new Date(s),E=new Date(e);
-  const d=new Intl.DateTimeFormat(undefined,{day:'2-digit',month:'short'});
-  const tm=new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'});
-  return `${d.format(S)} ${tm.format(S)} – ${tm.format(E)}`;
+type Range = { start: string; end: string };
+
+type Submission = {
+  execName: string;
+  ranges: Range[];
+  at?: string;
+};
+
+type WindowResponse = {
+  window?: {
+    candidateName?: string;
+    candidateTitle?: string;
+    candidateRanges?: Range[];
+  };
+  submissions?: Submission[];
+};
+
+type Slot = {
+  start: Date;
+  end: Date;
+  execs: string[];
+};
+
+function parseISO(s: string | undefined | null): Date | null {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
 }
 
-function merge(r:Range[]){ if(!r?.length) return []; const A=r.slice().sort((a,b)=>t(a.start)-t(b.start)); const out:[Range]=[{...A[0]}];
-  for(let i=1;i<A.length;i++){ const p=out[out.length-1], c=A[i]; if(t(c.start)<=t(p.end)){ if(t(c.end)>t(p.end)) p.end=c.end; } else out.push({...c}); }
-  return out;
-}
-function intersect(a:Range,b:Range){ const s=Math.max(t(a.start),t(b.start)), e=Math.min(t(a.end),t(b.end)); return e>s?{start:iso(s),end:iso(e)}:null; }
-function interMany(a:Range[],b:Range[]){ const o:Range[]=[]; for(const ra of a){ for(const rb of b){ const x=intersect(ra,rb); if(x) o.push(x); } } return merge(o); }
-function buildCoverage(c:Range[],execs:Submission[]){
-  const C=merge(c);
-  const per:Record<string,Range[]>= {};
-  for(const s of execs){ per[s.execName]=interMany(C,merge(s.ranges||[])); }
-  const ticks:number[]=[];
-  for(const r of C){ let ms=Math.ceil(t(r.start)/MS15)*MS15, end=Math.floor(t(r.end)/MS15)*MS15; for(;ms<end;ms+=MS15) ticks.push(ms); }
-  const cover=ticks.map(ms=>{
-    const active=execs.filter(e=>(per[e.execName]||[]).some(r=>t(r.start)<=ms && ms+MS15<=t(r.end))).map(e=>e.execName);
-    return {ms,active};
+function formatDateRange(start: Date, end: Date) {
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+
+  const dateFmt = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
   });
-  const wins:{start:number;end:number;active:string[]}[]=[];
-  for(const pt of cover){
-    if(!wins.length || JSON.stringify(pt.active)!==JSON.stringify(wins[wins.length-1].active)) wins.push({start:pt.ms,end:pt.ms+MS15,active:pt.active});
-    else wins[wins.length-1].end=pt.ms+MS15;
-  }
-  return wins.filter(w=>w.end-w.start>=MS15).map(w=>({start:iso(w.start),end:iso(w.end),active:w.active,count:w.active.length}));
+
+  const timeFmt = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  const datePart = dateFmt.format(start);
+  const s = timeFmt.format(start);
+  const e = timeFmt.format(end);
+
+  return {
+    dateLabel: datePart,
+    timeLabel: `${s} – ${e}`,
+  };
 }
 
-export default function Dashboard(){
-  const[win,setWin]=useState<WindowData|null>(null);
-  const[subs,setSubs]=useState<Submission[]>([]);
+function humanCandidateWindow(ranges: Range[] | undefined | null): string {
+  if (!ranges || ranges.length === 0) return "Not provided";
 
-  useEffect(()=>{ (async()=>{
-    const r=await fetch('/api/window'); const d=await r.json();
-    setWin(d.window||null); setSubs(d.submissions||[]);
-  })(); },[]);
+  const start = parseISO(ranges[0].start);
+  const end = parseISO(ranges[ranges.length - 1].end);
+  if (!start || !end) return "Not provided";
 
-  const {best,alts,flex,perDayRows} = useMemo(()=>{
-    if(!win) return {best:null,alts:[],flex:[],perDayRows:[] as {day:string,rows:{exec:string,slots:string[]}[]}[]};
+  const { dateLabel, timeLabel } = formatDateRange(start, end);
+  return `${dateLabel} ${timeLabel}`;
+}
 
-    // Build majority + alternates (60 min, quorum >= 2)
-    const execs = subs.filter(s=>Array.isArray(s.ranges)&&s.ranges.length>0);
-    const windows = buildCoverage(win.candidateRanges||[], execs);
-    const sixty = windows.filter(w=> (t(w.end)-t(w.start))>=MS60 && w.count>=2);
-    let best:any=null, alts:any[]=[];
-    if (sixty.length){
-      const max = Math.max(...sixty.map(w=>w.count));
-      best = sixty.filter(w=>w.count===max).sort((a,b)=>a.start.localeCompare(b.start))[0];
-      alts = sixty.filter(w=>w.count<max).sort((a,b)=> b.count-a.count || a.start.localeCompare(b.start)).slice(0,2);
-    }
+// check if [start,end] is fully within any of the ranges
+function isCovered(ranges: Range[], start: Date, end: Date): boolean {
+  const sMs = start.getTime();
+  const eMs = end.getTime();
+  return ranges.some((r) => {
+    const rs = parseISO(r.start);
+    const re = parseISO(r.end);
+    if (!rs || !re) return false;
+    return rs.getTime() <= sMs && re.getTime() >= eMs;
+  });
+}
 
-    // FLEX: compare against full directory (not just those who submitted)
-    const allExecs = new Set((win.eaDirectory||[]).map(e=>e.execName));
-    const activeSet = new Set(best?.active || []);
-    const flexList = best ? Array.from(allExecs).filter(x=>!activeSet.has(x)) : [];
+function generateSlots(
+  candidateRanges: Range[],
+  submissions: Submission[],
+  meetingMinutes = 60,
+  stepMinutes = 30
+): Slot[] {
+  if (candidateRanges.length === 0) return [];
 
-    // Exec availability by day (execs as rows)
-    // For each exec, intersect their ranges with candidate ranges, then group by day.
-    const cand = merge(win.candidateRanges||[]);
-    const byExec:Record<string,Range[]> = {};
-    for(const s of subs){
-      const merged = merge(s.ranges||[]);
-      byExec[s.execName] = interMany(cand, merged); // only show within candidate window
-    }
-    // Include execs who haven't submitted (empty)
-    for(const e of (win.eaDirectory||[])) if (!(e.execName in byExec)) byExec[e.execName] = [];
+  // overall candidate window min/max
+  const starts = candidateRanges
+    .map((r) => parseISO(r.start))
+    .filter((d): d is Date => !!d);
+  const ends = candidateRanges
+    .map((r) => parseISO(r.end))
+    .filter((d): d is Date => !!d);
+  if (starts.length === 0 || ends.length === 0) return [];
 
-    // Build day -> exec -> slots text[]
-    const dayMap:Record<string,{exec:string,slots:string[]}[]> = {};
-    for(const [execName, ranges] of Object.entries(byExec)){
-      // split each range by day boundaries
-      const slotsByDay:Record<string,string[]> = {};
-      for(const r of ranges){
-        let s = new Date(r.start), e = new Date(r.end);
-        let cur = new Date(s);
-        while (cur <= e){
-          const day = dayKey(cur);
-          // segment within this day
-          const dayStart = new Date(cur); dayStart.setHours(0,0,0,0);
-          const dayEnd = new Date(dayStart); dayEnd.setHours(23,59,59,999);
-          const segStart = new Date(Math.max(cur.getTime(), s.getTime()));
-          const segEnd = new Date(Math.min(dayEnd.getTime(), e.getTime()));
-          if (segEnd > segStart){
-            (slotsByDay[day] ||= []).push(`${timeFmt(segStart)} – ${timeFmt(segEnd)}`);
-          }
-          // move to next day
-          cur = new Date(dayEnd.getTime()+1);
-        }
-      }
-      // push rows for days that exist (and also days from candidate window so table shows columns consistently)
-      const candDays = new Set<string>();
-      for (const r of cand){ let cur=new Date(r.start); const end=new Date(r.end); 
-        while (cur<=end){ candDays.add(dayKey(cur)); const nd=new Date(cur); nd.setDate(nd.getDate()+1); nd.setHours(0,0,0,0); cur=nd; } }
-      const allDays = Array.from(new Set([...Object.keys(slotsByDay), ...Array.from(candDays)])).sort((a,b)=>a.localeCompare(b));
-      for(const d of allDays){
-        (dayMap[d] ||= []);
-        const slots = slotsByDay[d] || [];
-        dayMap[d].push({ exec: execName, slots });
+  const minStart = new Date(Math.min(...starts.map((d) => d.getTime())));
+  const maxEnd = new Date(Math.max(...ends.map((d) => d.getTime())));
+
+  const stepMs = stepMinutes * 60 * 1000;
+  const meetingMs = meetingMinutes * 60 * 1000;
+
+  const slots: Slot[] = [];
+
+  for (
+    let t = minStart.getTime();
+    t + meetingMs <= maxEnd.getTime();
+    t += stepMs
+  ) {
+    const s = new Date(t);
+    const e = new Date(t + meetingMs);
+
+    // ensure candidate is free for full window
+    if (!isCovered(candidateRanges, s, e)) continue;
+
+    // which execs are fully available in this window?
+    const execs: string[] = [];
+    for (const sub of submissions) {
+      if (!sub.ranges || sub.ranges.length === 0) continue;
+      if (isCovered(sub.ranges, s, e)) {
+        execs.push(sub.execName);
       }
     }
-    // turn into ordered list of sections with rows = execs
-    const perDayRows = Object.entries(dayMap)
-      .sort((a,b)=>a[0].localeCompare(b[0]))
-      .map(([day, rows])=>({
-        day,
-        rows: rows.sort((a,b)=> a.exec.localeCompare(b.exec))
-      }));
 
-    return {best,alts,flex:flexList,perDayRows};
-  },[win,subs]);
+    if (execs.length > 0) {
+      slots.push({ start: s, end: e, execs });
+    }
+  }
+
+  return slots;
+}
+
+export default function DashboardPage() {
+  const [data, setData] = useState<WindowResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    try {
+      const r = await fetch("/api/window");
+      const j = (await r.json()) as WindowResponse;
+      setData(j);
+    } catch (e) {
+      console.error("Failed to load window", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  const candidateName = data?.window?.candidateName ?? "Candidate";
+  const candidateTitle = data?.window?.candidateTitle ?? "";
+  const candidateRanges = data?.window?.candidateRanges ?? [];
+  const submissions = data?.submissions ?? [];
+
+  const candidateWindowLabel = humanCandidateWindow(candidateRanges);
+
+  const { majoritySlot, nextSlots, askToFlex } = useMemo(() => {
+    if (!candidateRanges.length || !submissions.length) {
+      return {
+        majoritySlot: null as Slot | null,
+        nextSlots: [] as Slot[],
+        askToFlex: [] as string[],
+      };
+    }
+
+    const slots = generateSlots(candidateRanges, submissions, 60, 30);
+    if (!slots.length) {
+      return {
+        majoritySlot: null,
+        nextSlots: [],
+        askToFlex: [],
+      };
+    }
+
+    // sort by #execs desc, then by start asc
+    const sorted = [...slots].sort((a, b) => {
+      if (b.execs.length !== a.execs.length) {
+        return b.execs.length - a.execs.length;
+      }
+      return a.start.getTime() - b.start.getTime();
+    });
+
+    const majoritySlot = sorted[0];
+
+    const maxExecs = majoritySlot.execs.length;
+
+    const nextSlots = sorted
+      .slice(1)
+      .filter((s) => s.execs.length >= Math.max(2, maxExecs - 1)); // "next possible"
+
+    const allExecNames = Array.from(
+      new Set(submissions.map((s) => s.execName))
+    );
+    const askToFlex = allExecNames.filter(
+      (name) => !majoritySlot.execs.includes(name)
+    );
+
+    return { majoritySlot, nextSlots, askToFlex };
+  }, [candidateRanges, submissions]);
+
+  const groupedExec = useMemo(() => {
+    // For "Exec availability so far (grouped by day)" section
+    const map: Record<string, Record<string, string[]>> = {};
+    for (const s of submissions) {
+      for (const r of s.ranges || []) {
+        const start = parseISO(r.start);
+        const end = parseISO(r.end);
+        if (!start || !end) continue;
+
+        const dayLabel = new Intl.DateTimeFormat(undefined, {
+          month: "short",
+          day: "numeric",
+        }).format(start);
+
+        map[dayLabel] ||= {};
+        map[dayLabel][s.execName] ||= [];
+
+        const timeFmt = new Intl.DateTimeFormat(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+        });
+
+        map[dayLabel][s.execName].push(
+          `${timeFmt.format(start)} – ${timeFmt.format(end)}`
+        );
+      }
+    }
+    return map;
+  }, [submissions]);
+
+  const execNames = useMemo(
+    () => Array.from(new Set(submissions.map((s) => s.execName))),
+    [submissions]
+  );
 
   return (
-    <div className="wrap">
-      <nav className="nav">
-        <a href="/" className="link">Scheduler</a>
-        <a href="/respond" className="link">EA page</a>
-        <a href="/dashboard" className="link">Dashboard</a>
-      </nav>
-
-      <h1 className="h1">Scheduling Dashboard</h1>
-
-      {win ? (
-        <div className="card">
-          <div><b>Candidate:</b> {win.candidateName}</div>
-          <div><b>Title:</b> {win.title}</div>
-          <div className="sub">
-            <b>Candidate availability</b>
-            <ul>{(win.candidateRanges||[]).map((r,i)=><li key={i}>{humanRangeLocal(r.start,r.end)}</li>)}</ul>
-          </div>
+    <main className="min-h-screen bg-[#050816] text-zinc-50 px-4 py-6">
+      <div className="max-w-5xl mx-auto space-y-6">
+        {/* Logo row — assuming you already have logo + nav elsewhere in layout;
+            if not, you can add nav here too */}
+        <div className="flex justify-end mb-2">
+          <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
-      ) : <div className="muted">No request yet. Create it on the Scheduler page.</div>}
 
-      {/* Exec availability so far — execs as rows */}
-      <div className="card" style={{marginTop:12}}>
-        <div className="sectionTitle">Exec availability so far (grouped by day)</div>
-        {perDayRows.length===0 ? <div className="muted">No availability yet.</div> : (
-          perDayRows.map(section=>(
-            <div key={section.day} className="dayBlock">
-              <div className="dayHeader">{section.day}</div>
-              <table className="table">
-                <thead><tr><th>Exec</th><th>Times</th></tr></thead>
+        {/* Page header */}
+        <header className="space-y-1">
+          <h1 className="text-3xl font-semibold">Dashboard</h1>
+          <p className="text-sm text-zinc-400">
+            Live view of EA submissions and common 60-min windows for this
+            candidate.
+          </p>
+        </header>
+
+        {/* Candidate card */}
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">
+                Candidate
+              </div>
+              <div className="text-lg font-semibold">{candidateName}</div>
+              {candidateTitle && (
+                <div className="text-sm text-zinc-300">{candidateTitle}</div>
+              )}
+              <div className="mt-3 text-sm font-semibold">
+                Candidate availability
+              </div>
+              <div className="text-sm text-zinc-200">
+                {candidateWindowLabel}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* EA submissions table (like you already had) */}
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5 space-y-3">
+          <h2 className="text-lg font-semibold">EA submissions</h2>
+          {submissions.length === 0 ? (
+            <div className="text-sm text-zinc-400">
+              No EA submissions yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm text-left">
+                <thead className="border-b border-zinc-800 text-xs uppercase text-zinc-500">
+                  <tr>
+                    <th className="py-2 pr-4">Exec</th>
+                    <th className="py-2 pr-4">Submitted at</th>
+                    <th className="py-2 pr-4">Ranges</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {section.rows.map((r,i)=>(
-                    <tr key={i}>
-                      <td className="exec">{r.exec}</td>
-                      <td>{r.slots.length ? r.slots.join(' • ') : <span className="muted">—</span>}</td>
+                  {submissions.map((s, idx) => (
+                    <tr
+                      key={idx}
+                      className="border-b border-zinc-900 last:border-0"
+                    >
+                      <td className="py-2 pr-4 whitespace-nowrap">
+                        {s.execName}
+                      </td>
+                      <td className="py-2 pr-4 whitespace-nowrap text-zinc-400 text-xs">
+                        {s.at
+                          ? new Date(s.at).toLocaleString()
+                          : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-zinc-200">
+                        {s.ranges
+                          .map((r) => {
+                            const start = parseISO(r.start);
+                            const end = parseISO(r.end);
+                            if (!start || !end) return "";
+                            const { dateLabel, timeLabel } =
+                              formatDateRange(start, end);
+                            return `${dateLabel} ${timeLabel}`;
+                          })
+                          .join(" · ")}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ))
-        )}
-      </div>
-
-      {/* Majority + alternates + flex */}
-      <div className="grid">
-        <div className="card">
-          <div className="sectionTitle">Majority 60-min window</div>
-          {best ? (
-            <div className="win best">
-              <b>{humanRangeLocal(best.start,best.end)}</b>
-              <div className="muted">Aligned execs ({best.count}): {best.active.join(', ')}</div>
-            </div>
-          ) : <div className="muted">No 60-min window with quorum ≥ 2 yet.</div>}
-
-          {alts?.length>0 && (
-            <>
-              <div className="sectionTitle" style={{marginTop:12}}>Next possible windows</div>
-              <ul className="list">
-                {alts.map((w:any,i:number)=>(
-                  <li key={i} className="win">
-                    <b>{humanRangeLocal(w.start,w.end)}</b>
-                    <div className="muted">Aligned execs ({w.count}): {w.active.join(', ')}</div>
-                  </li>
-                ))}
-              </ul>
-            </>
           )}
+        </section>
 
-          <div className="tip" style={{marginTop:12}}>
-            <b>Ask to flex:</b> {best ? (flex.length? flex.join(', ') : '—') : '—'}
+        {/* Exec availability grouped by day (like old white dashboard) */}
+        {Object.keys(groupedExec).length > 0 && (
+          <section className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5 space-y-3">
+            <h2 className="text-lg font-semibold">
+              Exec availability so far (grouped by day)
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm text-left">
+                <thead className="border-b border-zinc-800 text-xs uppercase text-zinc-500">
+                  <tr>
+                    <th className="py-2 pr-4">Date</th>
+                    {execNames.map((name) => (
+                      <th key={name} className="py-2 pr-4">
+                        {name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(groupedExec).map(
+                    ([day, row]) => (
+                      <tr
+                        key={day}
+                        className="border-b border-zinc-900 last:border-0"
+                      >
+                        <td className="py-2 pr-4 font-semibold">
+                          {day}
+                        </td>
+                        {execNames.map((name) => (
+                          <td key={name} className="py-2 pr-4">
+                            {(row as any)[name]?.join(" • ") ||
+                              "—"}
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Majority 60-min window */}
+        <section className="space-y-3">
+          <div className="rounded-2xl border border-blue-900/60 bg-blue-950/40 p-4 md:p-5">
+            <h2 className="text-sm font-semibold text-blue-200">
+              Majority 60-min window
+            </h2>
+            {majoritySlot ? (
+              (() => {
+                const { dateLabel, timeLabel } = formatDateRange(
+                  majoritySlot.start,
+                  majoritySlot.end
+                );
+                return (
+                  <div className="mt-2 space-y-1">
+                    <div className="text-sm font-semibold">
+                      {dateLabel} {timeLabel}
+                    </div>
+                    <div className="text-xs text-blue-200">
+                      Aligned execs ({majoritySlot.execs.length}):{" "}
+                      {majoritySlot.execs.join(", ")}
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="mt-2 text-sm text-blue-100">
+                No common 60-min window found yet.
+              </div>
+            )}
           </div>
-        </div>
-      </div>
 
-      <style jsx>{`
-        .wrap{max-width:1100px;margin:20px auto;padding:16px}
-        .nav{display:flex;gap:12px;margin-bottom:16px}
-        .link{padding:6px 10px;border:1px solid #bfdbfe;border-radius:8px;text-decoration:none;color:#1e3a8a;background:#eff6ff}
-        .h1{font-size:22px;font-weight:800;margin-bottom:8px}
-        .card{border:1px solid #dbeafe;border-radius:14px;padding:14px;background:#fff}
-        .sub{margin-top:6px}
-        .muted{color:#6b7280}
-        .grid{margin-top:14px}
-        .list{display:flex;flex-direction:column;gap:10px;margin:8px 0 0}
-        .win{border:1px solid #bfdbfe;border-radius:12px;padding:10px}
-        .best{background:#eff6ff;border-color:#60a5fa}
-        .sectionTitle{font-weight:700;margin-bottom:6px;color:#1e3a8a}
-        .dayBlock{margin-top:10px}
-        .dayHeader{font-weight:700;color:#111;margin-bottom:6px}
-        .table{width:100%;border-collapse:separate;border-spacing:0}
-        .table thead th{text-align:left;border-bottom:1px solid #e5e7eb;padding:6px 8px}
-        .table tbody td{padding:6px 8px;border-bottom:1px solid #f3f4f6}
-        .exec{white-space:nowrap;font-weight:600}
-        .tip{background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px;border-radius:10px}
-      `}</style>
-    </div>
+          {/* Next possible windows */}
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 md:p-5 space-y-2">
+            <h2 className="text-sm font-semibold text-zinc-100">
+              Next possible windows
+            </h2>
+            {nextSlots && nextSlots.length > 0 ? (
+              <div className="space-y-2">
+                {nextSlots.map((slot, idx) => {
+                  const { dateLabel, timeLabel } = formatDateRange(
+                    slot.start,
+                    slot.end
+                  );
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-zinc-800 bg-zinc-900/80 px-3 py-2"
+                    >
+                      <div className="text-sm font-medium">
+                        {dateLabel} {timeLabel}
+                      </div>
+                      <div className="text-xs text-zinc-400">
+                        Aligned execs ({slot.execs.length}):{" "}
+                        {slot.execs.join(", ")}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-400">
+                No additional strong windows yet.
+              </div>
+            )}
+          </div>
+
+          {/* Ask to flex */}
+          <div className="rounded-2xl border border-amber-700/60 bg-amber-950/40 p-4 md:p-5">
+            <h2 className="text-sm font-semibold text-amber-200">
+              Ask to flex
+            </h2>
+            {majoritySlot && askToFlex.length > 0 ? (
+              <div className="mt-2 text-sm text-amber-100">
+                Ask these execs if they can flex around the majority
+                window:{" "}
+                <span className="font-medium">
+                  {askToFlex.join(", ")}
+                </span>
+              </div>
+            ) : (
+              <div className="mt-2 text-sm text-amber-100">
+                — All execs are aligned for the majority window.
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }
+
