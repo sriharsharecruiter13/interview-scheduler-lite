@@ -15,7 +15,7 @@ type UIRange = {
   endCustom: string;
 };
 
-type EAEntry = { email: string };
+type EAEntry = { execName: string; email: string };
 
 type WindowResponse = {
   ok?: boolean;
@@ -88,9 +88,6 @@ function appendCandidateLog(entry: {
 export default function SchedulerPage() {
   const [candidateName, setCandidateName] = useState("");
   const [title, setTitle] = useState("");
-  const [execList, setExecList] = useState(
-    "" // e.g. "Cathy: SVP Product\nNeil: VP Eng\nJohn: VP Design"
-  );
   const [ranges, setRanges] = useState<UIRange[]>([
     {
       date: "",
@@ -102,7 +99,9 @@ export default function SchedulerPage() {
       endCustom: "",
     },
   ]);
-  const [eaList, setEaList] = useState<EAEntry[]>([{ email: "" }]);
+  const [eaList, setEaList] = useState<EAEntry[]>([
+    { execName: "", email: "" },
+  ]);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [links, setLinks] = useState<{ eaLink?: string; dashboard?: string }>(
@@ -141,12 +140,16 @@ export default function SchedulerPage() {
     setRanges((list) => list.filter((_, i) => i !== idx));
   }
 
-  function updateEa(idx: number, email: string) {
-    setEaList((list) => list.map((e, i) => (i === idx ? { email } : e)));
+  function updateEa(idx: number, field: keyof EAEntry, value: string) {
+    setEaList((list) =>
+      list.map((row, i) =>
+        i === idx ? { ...row, [field]: value } : row
+      )
+    );
   }
 
   function addEaRow() {
-    setEaList((list) => [...list, { email: "" }]);
+    setEaList((list) => [...list, { execName: "", email: "" }]);
   }
 
   function removeEaRow(idx: number) {
@@ -171,9 +174,21 @@ export default function SchedulerPage() {
       }
 
       const eaDirectory = eaList
-        .map((e) => e.email.trim())
+        .filter((row) => row.execName.trim() || row.email.trim())
+        .map((row) => ({
+          execName: row.execName.trim(),
+          email: row.email.trim(),
+        }));
+
+      // build execList string to show on EA page / dashboard / candidate log
+      const execList = eaDirectory
+        .map((row) =>
+          row.email
+            ? `${row.execName || "Exec"} – ${row.email}`
+            : row.execName
+        )
         .filter(Boolean)
-        .map((email) => ({ email }));
+        .join("\n");
 
       setIsSubmitting(true);
 
@@ -185,7 +200,7 @@ export default function SchedulerPage() {
           title,
           candidateRanges: cleanRanges,
           eaDirectory,
-          execList, // 👈 send exec list to backend
+          execList,
         }),
       });
 
@@ -257,23 +272,6 @@ export default function SchedulerPage() {
                 />
               </div>
             </div>
-          </div>
-
-          {/* Exec list for this request */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-slate-800">
-              Execs for this request
-            </label>
-            <p className="text-xs text-slate-500 mb-1">
-              Help EAs see which execs you&apos;re scheduling (e.g. &quot;Cathy
-              – SVP Product; Neil – VP Eng; John – VP Design&quot;).
-            </p>
-            <textarea
-              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 min-h-[72px]"
-              value={execList}
-              onChange={(e) => setExecList(e.target.value)}
-              placeholder="Cathy – SVP Product&#10;Neil – VP Eng&#10;John – VP Design"
-            />
           </div>
 
           {/* Candidate ranges */}
@@ -387,11 +385,7 @@ export default function SchedulerPage() {
                         className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
                         value={r.endDropdown}
                         onChange={(e) =>
-                          updateRange(
-                            i,
-                            "endDropdown",
-                            e.target.value
-                          )
+                          updateRange(i, "endDropdown", e.target.value)
                         }
                       >
                         <option value="">Select…</option>
@@ -438,26 +432,42 @@ export default function SchedulerPage() {
             </button>
           </div>
 
-          {/* EA directory */}
+          {/* EA directory: exec + EA email */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-800">
-              EA directory (optional – used to send EA links)
+              EA directory (exec + EA)
             </label>
+            <p className="text-xs text-slate-500 mb-1">
+              One row per exec: their name and the EA&apos;s email.
+            </p>
             {eaList.map((ea, idx) => (
-              <div key={idx} className="flex gap-2 mb-1">
+              <div
+                key={idx}
+                className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2"
+              >
                 <input
-                  className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                  placeholder="EA email"
-                  value={ea.email}
-                  onChange={(e) => updateEa(idx, e.target.value)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                  placeholder="Exec name"
+                  value={ea.execName}
+                  onChange={(e) =>
+                    updateEa(idx, "execName", e.target.value)
+                  }
                 />
-                <button
-                  type="button"
-                  className="text-xs text-red-500"
-                  onClick={() => removeEaRow(idx)}
-                >
-                  Remove
-                </button>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                    placeholder="EA email"
+                    value={ea.email}
+                    onChange={(e) => updateEa(idx, "email", e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="text-xs text-red-500 self-center whitespace-nowrap"
+                    onClick={() => removeEaRow(idx)}
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             ))}
             <button
@@ -465,7 +475,7 @@ export default function SchedulerPage() {
               className="text-xs text-sky-600 hover:text-sky-500"
               onClick={addEaRow}
             >
-              Add another EA
+              Add exec + EA
             </button>
           </div>
 
