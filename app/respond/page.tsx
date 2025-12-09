@@ -17,8 +17,8 @@ type WindowResponse = {
 };
 
 function humanRangeLocal(sISO: string, eISO: string) {
-  const s = new Date(sISO),
-    e = new Date(eISO);
+  const s = new Date(sISO);
+  const e = new Date(eISO);
   const dFmt = new Intl.DateTimeFormat(undefined, {
     day: "2-digit",
     month: "short",
@@ -29,6 +29,7 @@ function humanRangeLocal(sISO: string, eISO: string) {
   });
   return `${dFmt.format(s)} ${tFmt.format(s)} – ${tFmt.format(e)}`;
 }
+
 function dayKey(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
     day: "2-digit",
@@ -96,6 +97,22 @@ export default function Respond() {
 
   const timeOptions = useMemo(() => buildTimeOptions(), []);
 
+  // NEW: names-only version of execList (no emails)
+  const execListNamesOnly = useMemo(() => {
+    if (!execList) return "";
+    return execList
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        // split on -, – or —
+        const parts = line.split(/[-–—]/);
+        return (parts[0] || "").trim();
+      })
+      .filter(Boolean)
+      .join("\n");
+  }, [execList]);
+
   async function load() {
     const r = await fetch(`/api/window`);
     const d = (await r.json()) as WindowResponse;
@@ -134,6 +151,7 @@ export default function Respond() {
       },
     ]);
   }
+
   function removeRow(i: number) {
     setRows((list) => list.filter((_, idx) => idx !== i));
   }
@@ -231,7 +249,7 @@ export default function Respond() {
         <AppNav active="ea" />
 
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold">EA availability submission</h1>
+          <h1 className="text-2xl font-semibold">Exec availability submission</h1>
           <p className="text-sm text-slate-600">
             Pick a date and 30-min slot, or choose “Custom” and type any time
             (e.g. 9:05 AM – 9:30 AM).
@@ -240,7 +258,7 @@ export default function Respond() {
 
         <section className="space-y-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
           {/* Candidate availability + exec list */}
-          {(candidateRanges.length > 0 || execList) && (
+          {(candidateRanges.length > 0 || execListNamesOnly) && (
             <div className="space-y-3">
               {candidateRanges.length > 0 && (
                 <div className="space-y-1">
@@ -254,14 +272,19 @@ export default function Respond() {
                   </ul>
                 </div>
               )}
-              {execList && (
+              {execListNamesOnly && (
                 <div className="space-y-1">
                   <div className="text-sm font-semibold">
                     Execs for this request:
                   </div>
-                  <pre className="text-sm text-slate-800 whitespace-pre-wrap rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
-                    {execList}
+                  <pre className="text-sm text-slate-800 whitespace-pre-wrap rounded-md bg-slate-50 border border-slate-200 px-2 py-1">
+                    {execListNamesOnly}
                   </pre>
+                  <p className="text-[11px] text-slate-500">
+                    Email addresses are hidden on this page. If you support multiple execs
+                    from this panel, you can submit availability separately for each exec
+                    by changing the Exec name field below.
+                  </p>
                 </div>
               )}
             </div>
