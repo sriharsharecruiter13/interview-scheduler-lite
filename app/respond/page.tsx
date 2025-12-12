@@ -67,8 +67,7 @@ function toISO(date: string, time: string): string {
 function uiRowToRange(r: UIRange): Range | null {
   const startTime =
     r.startChoice === "dropdown" ? r.startDropdown : r.startCustom;
-  const endTime =
-    r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
+  const endTime = r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
   const startISO = toISO(r.date, startTime);
   const endISO = toISO(r.date, endTime);
   if (!startISO || !endISO) return null;
@@ -77,6 +76,11 @@ function uiRowToRange(r: UIRange): Range | null {
 }
 
 const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+type PatternBlock = {
+  start: string;
+  end: string;
+};
 
 export default function Respond() {
   const [execName, setExecName] = useState("");
@@ -109,8 +113,9 @@ export default function Respond() {
     false,
     false,
   ]); // Sun..Sat
-  const [patternStartTime, setPatternStartTime] = useState("");
-  const [patternEndTime, setPatternEndTime] = useState("");
+  const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>([
+    { start: "", end: "" },
+  ]);
   const [patternErr, setPatternErr] = useState("");
 
   const timeOptions = useMemo(() => buildTimeOptions(), []);
@@ -255,11 +260,30 @@ export default function Respond() {
 
   const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
 
-  // QUICK PATTERN: generate ranges for a date range + selected weekdays
+  // QUICK PATTERN helpers
+
   function handleToggleDay(idx: number) {
     setPatternDays((prev) =>
       prev.map((val, i) => (i === idx ? !val : val))
     );
+  }
+
+  function updatePatternBlock(
+    idx: number,
+    key: keyof PatternBlock,
+    value: string
+  ) {
+    setPatternBlocks((prev) =>
+      prev.map((b, i) => (i === idx ? { ...b, [key]: value } : b))
+    );
+  }
+
+  function addPatternBlock() {
+    setPatternBlocks((prev) => [...prev, { start: "", end: "" }]);
+  }
+
+  function removePatternBlock(idx: number) {
+    setPatternBlocks((prev) => prev.filter((_, i) => i !== idx));
   }
 
   function generatePatternRanges() {
@@ -283,12 +307,14 @@ export default function Respond() {
       setPatternErr("Select at least one day of the week.");
       return;
     }
-    if (!patternStartTime || !patternEndTime) {
-      setPatternErr("Enter both start time and end time.");
-      return;
-    }
-    if (patternEndTime <= patternStartTime) {
-      setPatternErr("End time must be after start time.");
+
+    const validBlocks = patternBlocks.filter(
+      (b) => b.start && b.end && b.end > b.start
+    );
+    if (validBlocks.length === 0) {
+      setPatternErr(
+        "Add at least one valid time block (end time after start time)."
+      );
       return;
     }
 
@@ -298,15 +324,17 @@ export default function Respond() {
       const dayIdx = cursor.getDay(); // 0=Sun..6=Sat
       if (patternDays[dayIdx]) {
         const dateStr = cursor.toISOString().slice(0, 10); // YYYY-MM-DD
-        newRows.push({
-          date: dateStr,
-          startChoice: "dropdown",
-          endChoice: "dropdown",
-          startDropdown: patternStartTime,
-          endDropdown: patternEndTime,
-          startCustom: "",
-          endCustom: "",
-        });
+        for (const block of validBlocks) {
+          newRows.push({
+            date: dateStr,
+            startChoice: "dropdown",
+            endChoice: "dropdown",
+            startDropdown: block.start,
+            endDropdown: block.end,
+            startCustom: "",
+            endCustom: "",
+          });
+        }
       }
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -335,8 +363,9 @@ export default function Respond() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec availability submission</h1>
           <p className="text-sm text-slate-600">
-            Pick a date and 30-min slot, or use the quick pattern tool to fill
-            multiple days in one go (e.g. 2 weeks of Mon–Thu, 9–11 AM).
+            Use the quick pattern tool to fill multiple days at once (e.g. 2
+            weeks of morning and afternoon slots), or add individual ranges
+            manually below.
           </p>
         </header>
 
@@ -432,9 +461,10 @@ export default function Respond() {
                   Quick pattern (optional)
                 </div>
                 <p className="text-[11px] text-slate-600">
-                  Use this to generate repeated availability over multiple days
-                  (e.g. next 2 weeks, Mon–Thu, 9–11 AM). Generated rows appear
-                  in the list below and can be edited or removed.
+                  Pick a date range, choose weekdays, and add one or more time
+                  blocks (for example, 9–10:30 AM and 2:30–4 PM). We&apos;ll
+                  add one row for each date × time block below, where you can
+                  still edit or remove individual rows.
                 </p>
               </div>
             </div>
@@ -483,35 +513,74 @@ export default function Respond() {
               </div>
             </div>
 
-            {/* Times */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <div className="text-xs text-slate-500">Start time</div>
-                <input
-                  type="time"
-                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                  value={patternStartTime}
-                  onChange={(e) => setPatternStartTime(e.target.value)}
-                />
+            {/* Time blocks */}
+            <div className="space-y-2">
+              <div className="text-xs text-slate-500">
+                Time blocks (you can add multiple, e.g. mornings and afternoons)
               </div>
-              <div className="space-y-1">
-                <div className="text-xs text-slate-500">End time</div>
-                <input
-                  type="time"
-                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                  value={patternEndTime}
-                  onChange={(e) => setPatternEndTime(e.target.value)}
-                />
+              <div className="space-y-2">
+                {patternBlocks.map((block, idx) => (
+                  <div
+                    key={idx}
+                    className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end"
+                  >
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-slate-500">
+                        Start time
+                      </div>
+                      <input
+                        type="time"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                        value={block.start}
+                        onChange={(e) =>
+                          updatePatternBlock(idx, "start", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-slate-500">
+                        End time
+                      </div>
+                      <input
+                        type="time"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                        value={block.end}
+                        onChange={(e) =>
+                          updatePatternBlock(idx, "end", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="flex justify-start sm:justify-end">
+                      {patternBlocks.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removePatternBlock(idx)}
+                          className="text-[11px] text-red-500"
+                        >
+                          Remove block
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={generatePatternRanges}
-                  className="text-xs px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
-                >
-                  Generate ranges
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={addPatternBlock}
+                className="text-[11px] text-sky-600 hover:text-sky-500"
+              >
+                + Add another time block
+              </button>
+            </div>
+
+            <div className="flex items-center justify-start">
+              <button
+                type="button"
+                onClick={generatePatternRanges}
+                className="text-xs px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+              >
+                Generate ranges
+              </button>
             </div>
 
             {patternErr && (
