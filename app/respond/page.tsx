@@ -1,3 +1,4 @@
+nano app/respond/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -76,6 +77,8 @@ function uiRowToRange(r: UIRange): Range | null {
   return { start: startISO, end: endISO };
 }
 
+const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 export default function Respond() {
   const [execName, setExecName] = useState("");
   const [rows, setRows] = useState<UIRange[]>([
@@ -95,9 +98,25 @@ export default function Respond() {
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
 
+  // Quick pattern state
+  const [patternStartDate, setPatternStartDate] = useState("");
+  const [patternEndDate, setPatternEndDate] = useState("");
+  const [patternDays, setPatternDays] = useState<boolean[]>([
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ]); // Sun..Sat
+  const [patternStartTime, setPatternStartTime] = useState("");
+  const [patternEndTime, setPatternEndTime] = useState("");
+  const [patternErr, setPatternErr] = useState("");
+
   const timeOptions = useMemo(() => buildTimeOptions(), []);
 
-  // NEW: names-only version of execList (no emails)
+  // names-only version of execList (no emails) for EA view
   const execListNamesOnly = useMemo(() => {
     if (!execList) return "";
     return execList
@@ -105,7 +124,6 @@ export default function Respond() {
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        // split on -, – or —
         const parts = line.split(/[-–—]/);
         return (parts[0] || "").trim();
       })
@@ -238,6 +256,73 @@ export default function Respond() {
 
   const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
 
+  // QUICK PATTERN: generate ranges for a date range + selected weekdays
+  function handleToggleDay(idx: number) {
+    setPatternDays((prev) =>
+      prev.map((val, i) => (i === idx ? !val : val))
+    );
+  }
+
+  function generatePatternRanges() {
+    setPatternErr("");
+    // basic validation
+    if (!patternStartDate || !patternEndDate) {
+      setPatternErr("Choose both a start date and an end date.");
+      return;
+    }
+    const start = new Date(patternStartDate);
+    const end = new Date(patternEndDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      setPatternErr("Invalid date range.");
+      return;
+    }
+    if (end < start) {
+      setPatternErr("End date should be on or after start date.");
+      return;
+    }
+    if (!patternDays.some(Boolean)) {
+      setPatternErr("Select at least one day of the week.");
+      return;
+    }
+    if (!patternStartTime || !patternEndTime) {
+      setPatternErr("Enter both start time and end time.");
+      return;
+    }
+    if (patternEndTime <= patternStartTime) {
+      setPatternErr("End time must be after start time.");
+      return;
+    }
+
+    const newRows: UIRange[] = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const dayIdx = cursor.getDay(); // 0=Sun..6=Sat
+      if (patternDays[dayIdx]) {
+        const dateStr = cursor.toISOString().slice(0, 10); // YYYY-MM-DD
+        newRows.push({
+          date: dateStr,
+          startChoice: "dropdown",
+          endChoice: "dropdown",
+          startDropdown: patternStartTime,
+          endDropdown: patternEndTime,
+          startCustom: "",
+          endCustom: "",
+        });
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    if (newRows.length === 0) {
+      setPatternErr(
+        "No dates matched that combination. Check your dates and days of week."
+      );
+      return;
+    }
+
+    setRows((prev) => [...prev, ...newRows]);
+    setPatternErr("");
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 px-4 py-6">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -251,8 +336,8 @@ export default function Respond() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec availability submission</h1>
           <p className="text-sm text-slate-600">
-            Pick a date and 30-min slot, or choose “Custom” and type any time
-            (e.g. 9:05 AM – 9:30 AM).
+            Pick a date and 30-min slot, or use the quick pattern tool to fill
+            multiple days in one go (e.g. 2 weeks of Mon–Thu, 9–11 AM).
           </p>
         </header>
 
@@ -281,9 +366,10 @@ export default function Respond() {
                     {execListNamesOnly}
                   </pre>
                   <p className="text-[11px] text-slate-500">
-                    Email addresses are hidden on this page. If you support multiple execs
-                    from this panel, you can submit availability separately for each exec
-                    by changing the Exec name field below.
+                    Email addresses are hidden on this page. If you support
+                    multiple execs from this panel, submit availability
+                    separately for each exec by changing the Exec name field
+                    below.
                   </p>
                 </div>
               )}
@@ -339,7 +425,104 @@ export default function Respond() {
             />
           </div>
 
-          {/* Time ranges */}
+          {/* QUICK PATTERN GENERATOR */}
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-slate-800">
+                  Quick pattern (optional)
+                </div>
+                <p className="text-[11px] text-slate-600">
+                  Use this to generate repeated availability over multiple days
+                  (e.g. next 2 weeks, Mon–Thu, 9–11 AM). Generated rows appear
+                  in the list below and can be edited or removed.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Date range */}
+              <div className="space-y-1">
+                <div className="text-xs text-slate-500">Start date</div>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                  value={patternStartDate}
+                  onChange={(e) => setPatternStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-slate-500">End date</div>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                  value={patternEndDate}
+                  onChange={(e) => setPatternEndDate(e.target.value)}
+                />
+              </div>
+
+              {/* Days of week */}
+              <div className="space-y-1">
+                <div className="text-xs text-slate-500">Days of week</div>
+                <div className="flex flex-wrap gap-1">
+                  {weekdayLabels.map((label, idx) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => handleToggleDay(idx)}
+                      className={
+                        "text-[11px] px-2 py-1 rounded-full border " +
+                        (patternDays[idx]
+                          ? "bg-sky-600 text-white border-sky-600"
+                          : "bg-white text-slate-700 border-slate-300")
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Times */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <div className="text-xs text-slate-500">Start time</div>
+                <input
+                  type="time"
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                  value={patternStartTime}
+                  onChange={(e) => setPatternStartTime(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-slate-500">End time</div>
+                <input
+                  type="time"
+                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                  value={patternEndTime}
+                  onChange={(e) => setPatternEndTime(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={generatePatternRanges}
+                  className="text-xs px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+                >
+                  Generate ranges
+                </button>
+              </div>
+            </div>
+
+            {patternErr && (
+              <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-[11px] text-red-800">
+                {patternErr}
+              </div>
+            )}
+          </div>
+
+          {/* Time ranges (manual + generated) */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-800">
               Add exec time ranges (date + 30-min dropdown or custom times)

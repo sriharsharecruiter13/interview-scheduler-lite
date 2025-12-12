@@ -10,6 +10,8 @@ type CandidateEntry = {
   candidateName: string;
   title: string;
   execList?: string;
+  // we still accept schedulerUrl/createdAt in raw data,
+  // but we don't show them in the UI anymore
   schedulerUrl?: string;
   createdAt?: string;
 };
@@ -41,7 +43,6 @@ function normalizeEntry(e: RawEntry, index: number): CandidateEntry {
   const rawExecList = e.execList || e.execs || e.execNotes || "";
 
   const id = e.id || `${candidateName}-${createdAt || index}`;
-
   const execList = rawExecList ? stripExecEmails(String(rawExecList)) : "";
 
   return {
@@ -67,12 +68,29 @@ function loadFromStorage(): CandidateEntry[] {
   }
 }
 
+function saveToStorage(entries: CandidateEntry[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  } catch {
+    // ignore
+  }
+}
+
 export default function CandidateLogPage() {
   const [entries, setEntries] = useState<CandidateEntry[]>([]);
 
   useEffect(() => {
     setEntries(loadFromStorage());
   }, []);
+
+  function handleRemove(id: string) {
+    setEntries((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      saveToStorage(next);
+      return next;
+    });
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 px-4 py-6">
@@ -87,7 +105,8 @@ export default function CandidateLogPage() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Candidate log</h1>
           <p className="text-sm text-slate-600">
-            All candidates captured from the Scheduler (stored in your browser).
+            Panels you&apos;ve created from the Scheduler (stored in your
+            browser). Use this as a reference and clean it up as you go.
           </p>
         </header>
 
@@ -104,8 +123,7 @@ export default function CandidateLogPage() {
                     <th className="py-2 pr-4">Candidate</th>
                     <th className="py-2 pr-4">Title</th>
                     <th className="py-2 pr-4">Execs</th>
-                    <th className="py-2 pr-4">Schedule page</th>
-                    <th className="py-2 pr-4">Created</th>
+                    <th className="py-2 pr-4">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -130,23 +148,13 @@ export default function CandidateLogPage() {
                         )}
                       </td>
                       <td className="py-2 pr-4 whitespace-nowrap">
-                        {e.schedulerUrl ? (
-                          <a
-                            href={e.schedulerUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sky-600 underline text-xs"
-                          >
-                            Open scheduler
-                          </a>
-                        ) : (
-                          <span className="text-xs text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="py-2 pr-4 text-xs text-slate-500 whitespace-nowrap">
-                        {e.createdAt
-                          ? new Date(e.createdAt).toLocaleString()
-                          : "—"}
+                        <button
+                          type="button"
+                          onClick={() => handleRemove(e.id)}
+                          className="text-xs px-2 py-1 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
+                        >
+                          Remove
+                        </button>
                       </td>
                     </tr>
                   ))}

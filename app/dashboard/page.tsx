@@ -132,7 +132,7 @@ function generateSlots(
   return slots;
 }
 
-// helper: hide emails from execList for dashboard display
+// Helper: hide emails from execList for dashboard display
 function stripExecEmails(execList: string): string {
   if (!execList) return "";
   return execList
@@ -404,19 +404,86 @@ export default function DashboardPage() {
               Majority 60-min window
             </h2>
             {majoritySlot ? (
-              (() => {
-                const { dateLabel, timeLabel } = formatDateRange(
-                  majoritySlot.start,
-                  majoritySlot.end
-                );
-                return (
-                  <div className="mt-2 space-y-1">
-                    <div className="text-sm font-semibold text-blue-900">
-                      {dateLabel} {timeLabel}
+              <div className="mt-2 space-y-1">
+                {(() => {
+                  const { dateLabel, timeLabel } = formatDateRange(
+                    majoritySlot.start,
+                    majoritySlot.end
+                  );
+                  return (
+                    <>
+                      <div className="text-sm font-semibold text-blue-900">
+                        {dateLabel} {timeLabel}
+                      </div>
+                      <div className="text-xs text-blue-800">
+                        Aligned execs ({majoritySlot.execs.length}):{" "}
+                        {majoritySlot.execs.join(", ")}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="mt-2 text-sm text-blue-900">
+                No common 60-min window found yet.
+              </div>
+            )}
+          </div>
+
+          {/* Next possible windows */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 space-y-2 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">
+              Next possible windows
+            </h2>
+            {nextSlots && nextSlots.length > 0 ? (
+              <div className="space-y-2">
+                {nextSlots.map((slot, idx) => {
+                  const { dateLabel, timeLabel } = formatDateRange(
+                    slot.start,
+                    slot.end
+                  );
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                    >
+                      <div className="text-sm font-medium text-slate-900">
+                        {dateLabel} {timeLabel}
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        Aligned execs ({slot.execs.length}):{" "}
+                        {slot.execs.join(", ")}
+                      </div>
                     </div>
-                    <div className="text-xs text-blue-800">
-                      Aligned execs ({majoritySlot.execs.length}):{" "}
-                      {majoritySlot.execs.join(", ")}
-                    </div>
-                  </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-sm text-slate-600">
+                No additional strong windows yet.
+              </div>
+            )}
+          </div>
+
+          {/* Ask to flex */}
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 md:p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-amber-900">
+              Ask to flex
+            </h2>
+            {majoritySlot && askToFlex.length > 0 ? (
+              <div className="mt-2 text-sm text-amber-900">
+                Ask these execs if they can flex around the majority window:{" "}
+                <span className="font-medium">{askToFlex.join(", ")}</span>
+              </div>
+            ) : (
+              <div className="mt-2 text-sm text-amber-900">
+                — All execs are aligned for the majority window.
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
 
