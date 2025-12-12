@@ -16,6 +16,20 @@ type CandidateEntry = {
 
 const STORAGE_KEY = "candidateLog";
 
+function stripExecEmails(execList: string): string {
+  if (!execList) return "";
+  return execList
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/[-–—]/);
+      return (parts[0] || "").trim();
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 function normalizeEntry(e: RawEntry, index: number): CandidateEntry {
   const candidateName =
     e.candidateName || e.name || e.candidate || `Candidate ${index + 1}`;
@@ -24,9 +38,11 @@ function normalizeEntry(e: RawEntry, index: number): CandidateEntry {
     e.schedulerUrl || e.schedulerLink || e.scheduler || e.link || undefined;
   const createdAt =
     e.createdAt || e.created || e.time || e.timestamp || undefined;
-  const execList = e.execList || e.execs || e.execNotes || "";
+  const rawExecList = e.execList || e.execs || e.execNotes || "";
 
   const id = e.id || `${candidateName}-${createdAt || index}`;
+
+  const execList = rawExecList ? stripExecEmails(String(rawExecList)) : "";
 
   return {
     id: String(id),
@@ -34,7 +50,7 @@ function normalizeEntry(e: RawEntry, index: number): CandidateEntry {
     title: String(title),
     schedulerUrl,
     createdAt,
-    execList: execList ? String(execList) : "",
+    execList,
   };
 }
 
