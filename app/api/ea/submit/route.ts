@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 import {
   addSubmission,
   getSubmissions,
   addExecHistoryEntry,
-} from '../../../../lib/store';
+} from "../../../../lib/store";
 
 type EaRange = { start: string; end: string };
 
@@ -22,31 +22,31 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'Enter Exec name and at least one valid time range.',
+          error: "Enter Exec name and at least one valid time range.",
         },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
     const at = new Date().toISOString();
 
-    // 1) Existing behavior: store submission for the current scheduling window
+    // 1) Update the current-window submissions (Dashboard, overlaps, etc.)
     await addSubmission({ execName, ranges: clean, at } as any);
 
-    // 2) New behavior: also append to global exec history log
+    // 2) Log into global exec history (for /execs)
     await addExecHistoryEntry({ execName, ranges: clean, at });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e?.message || 'failed' },
-      { status: 500 },
+      { ok: false, error: e?.message || "failed" },
+      { status: 500 }
     );
   }
 }
 
+// Keep GET if anything calls it (e.g., debugging)
 export async function GET() {
-  // keeps existing behavior if anything in your app calls this
   const submissions = await getSubmissions();
   return NextResponse.json({ submissions });
 }
