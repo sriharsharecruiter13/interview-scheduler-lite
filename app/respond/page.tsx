@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AppNav from "@/components/AppNav";
+import ChatPanel from "@/components/ChatPanel";
 
 type Range = { start: string; end: string };
 type Submission = { execName: string; ranges: Range[]; at: string };
@@ -13,7 +14,10 @@ type WindowResponse = {
     candidateRanges?: Range[];
     execList?: string;
   };
-  submissions?: Submission[];
+  submissions?: Submission[];            
+  {/* Shared chat for TAC + EA */}
+        <ChatPanel role="ea" />
+
 };
 
 function humanRangeLocal(sISO: string, eISO: string) {

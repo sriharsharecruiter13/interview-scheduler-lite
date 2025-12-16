@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AppNav from "@/components/AppNav";
+import ChatPanel from "@/components/ChatPanel";
 
 type Range = { start: string; end: string };
 
@@ -479,7 +480,8 @@ export default function DashboardPage() {
               <div className="mt-2 text-sm text-amber-900">
                 — All execs are aligned for the majority window.
               </div>
-            )}
+            )}        {/* TAC + EA shared chat */}
+        <ChatPanel role="tac" />
           </div>
         </section>
       </div>
