@@ -12,7 +12,7 @@ export async function GET() {
   try {
     const messages = await getChatMessages();
     return NextResponse.json({ messages });
-  } catch (e: any) {
+  } catch (e) {
     console.error("GET /api/chat failed", e);
     return NextResponse.json(
       { error: "Failed to load chat messages" },
@@ -46,11 +46,13 @@ export async function POST(req: Request) {
     const msg = await addChatMessage(role, text);
     const messages = await getChatMessages();
 
-    // 🔌 BOT HOOK (future):
-    // Here is where you'd later call OpenAI and then addChatMessage("bot", replyText)
+    // Bot hook in the future can go here:
+    // - call OpenAI
+    // - await addChatMessage("bot", reply)
+    // - reload messages
 
     return NextResponse.json({ ok: true, message: msg, messages });
-  } catch (e: any) {
+  } catch (e) {
     console.error("POST /api/chat failed", e);
     return NextResponse.json(
       { error: "Failed to post chat message" },
@@ -58,5 +60,4 @@ export async function POST(req: Request) {
     );
   }
 }
-
 
