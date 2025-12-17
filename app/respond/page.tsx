@@ -1,4 +1,4 @@
-"use client";
+k"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import AppNav from "@/components/AppNav";
@@ -14,10 +14,7 @@ type WindowResponse = {
     candidateRanges?: Range[];
     execList?: string;
   };
-  submissions?: Submission[];            
-  {/* Shared chat for TAC + EA */}
-        <ChatPanel role="ea" />
-
+  submissions?: Submission[];
 };
 
 function humanRangeLocal(sISO: string, eISO: string) {
@@ -42,26 +39,10 @@ function dayKey(iso: string) {
 }
 
 type UIRange = {
-  date: string;
-  startChoice: "dropdown" | "custom";
-  endChoice: "dropdown" | "custom";
-  startDropdown: string;
-  endDropdown: string;
-  startCustom: string;
-  endCustom: string;
+  date: string; // YYYY-MM-DD
+  start: string; // HH:MM (24h)
+  end: string; // HH:MM (24h)
 };
-
-function buildTimeOptions(fromHour = 7, toHour = 20): string[] {
-  const opts: string[] = [];
-  for (let h = fromHour; h <= toHour; h++) {
-    for (const m of [0, 30]) {
-      const hh = String(h).padStart(2, "0");
-      const mm = String(m).padStart(2, "0");
-      opts.push(`${hh}:${mm}`);
-    }
-  }
-  return opts;
-}
 
 function toISO(date: string, time: string): string {
   if (!date || !time) return "";
@@ -69,60 +50,44 @@ function toISO(date: string, time: string): string {
 }
 
 function uiRowToRange(r: UIRange): Range | null {
-  const startTime =
-    r.startChoice === "dropdown" ? r.startDropdown : r.startCustom;
-  const endTime = r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
-  const startISO = toISO(r.date, startTime);
-  const endISO = toISO(r.date, endTime);
+  if (!r.date || !r.start || !r.end) return null;
+  const startISO = toISO(r.date, r.start);
+  const endISO = toISO(r.date, r.end);
   if (!startISO || !endISO) return null;
   if (new Date(endISO) <= new Date(startISO)) return null;
   return { start: startISO, end: endISO };
 }
 
-const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Helpers for parsing pasted rows from Google Sheets
+function toDateInputValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-type PatternBlock = {
-  start: string;
-  end: string;
-};
+function toTimeInputValue(d: Date): string {
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
 
 export default function Respond() {
   const [execName, setExecName] = useState("");
-  const [rows, setRows] = useState<UIRange[]>([
-    {
-      date: "",
-      startChoice: "dropdown",
-      endChoice: "dropdown",
-      startDropdown: "",
-      endDropdown: "",
-      startCustom: "",
-      endCustom: "",
-    },
-  ]);
+  const [rows, setRows] = useState<UIRange[]>([{ date: "", start: "", end: "" }]);
   const [candidateRanges, setCandidateRanges] = useState<Range[]>([]);
   const [execList, setExecList] = useState("");
   const [subs, setSubs] = useState<Submission[]>([]);
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
 
-  // Quick pattern state
-  const [patternStartDate, setPatternStartDate] = useState("");
-  const [patternEndDate, setPatternEndDate] = useState("");
-  const [patternDays, setPatternDays] = useState<boolean[]>([
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ]); // Sun..Sat
-  const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>([
-    { start: "", end: "" },
-  ]);
-  const [patternErr, setPatternErr] = useState("");
+  // Paste-from-sheet state
+  const [pasteText, setPasteText] = useState("");
+  const [pasteErr, setPasteErr] = useState("");
 
-  const timeOptions = useMemo(() => buildTimeOptions(), []);
+  const timeOptions = useMemo(() => {
+    return [];
+  }, []);
 
   // names-only version of execList (no emails) for EA view
   const execListNamesOnly = useMemo(() => {
@@ -153,29 +118,14 @@ export default function Respond() {
     return () => clearInterval(t);
   }, []);
 
-  function updateRow<K extends keyof UIRange>(
-    idx: number,
-    key: K,
-    value: UIRange[K]
-  ) {
+  function updateRow(idx: number, key: keyof UIRange, value: string) {
     setRows((list) =>
       list.map((row, i) => (i === idx ? { ...row, [key]: value } : row))
     );
   }
 
   function addRow() {
-    setRows((list) => [
-      ...list,
-      {
-        date: "",
-        startChoice: "dropdown",
-        endChoice: "dropdown",
-        startDropdown: "",
-        endDropdown: "",
-        startCustom: "",
-        endCustom: "",
-      },
-    ]);
+    setRows((list) => [...list, { date: "", start: "", end: "" }]);
   }
 
   function removeRow(i: number) {
@@ -206,17 +156,7 @@ export default function Respond() {
       }
 
       setDone("Saved. Your previous availability (if any) was replaced.");
-      setRows([
-        {
-          date: "",
-          startChoice: "dropdown",
-          endChoice: "dropdown",
-          startDropdown: "",
-          endDropdown: "",
-          startCustom: "",
-          endCustom: "",
-        },
-      ]);
+      setRows([{ date: "", start: "", end: "" }]);
       load();
     } catch (e: any) {
       setErr(e.message || "Failed");
@@ -264,94 +204,66 @@ export default function Respond() {
 
   const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
 
-  // QUICK PATTERN helpers
-
-  function handleToggleDay(idx: number) {
-    setPatternDays((prev) =>
-      prev.map((val, i) => (i === idx ? !val : val))
-    );
-  }
-
-  function updatePatternBlock(
-    idx: number,
-    key: keyof PatternBlock,
-    value: string
-  ) {
-    setPatternBlocks((prev) =>
-      prev.map((b, i) => (i === idx ? { ...b, [key]: value } : b))
-    );
-  }
-
-  function addPatternBlock() {
-    setPatternBlocks((prev) => [...prev, { start: "", end: "" }]);
-  }
-
-  function removePatternBlock(idx: number) {
-    setPatternBlocks((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function generatePatternRanges() {
-    setPatternErr("");
-    // basic validation
-    if (!patternStartDate || !patternEndDate) {
-      setPatternErr("Choose both a start date and an end date.");
-      return;
-    }
-    const start = new Date(patternStartDate);
-    const end = new Date(patternEndDate);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      setPatternErr("Invalid date range.");
-      return;
-    }
-    if (end < start) {
-      setPatternErr("End date should be on or after start date.");
-      return;
-    }
-    if (!patternDays.some(Boolean)) {
-      setPatternErr("Select at least one day of the week.");
+  // Parse pasted text (expected format: Date, Start, End in 3 columns)
+  function handleConvertPaste() {
+    setPasteErr("");
+    const text = pasteText.trim();
+    if (!text) {
+      setPasteErr("Paste rows from your sheet first.");
       return;
     }
 
-    const validBlocks = patternBlocks.filter(
-      (b) => b.start && b.end && b.end > b.start
-    );
-    if (validBlocks.length === 0) {
-      setPatternErr(
-        "Add at least one valid time block (end time after start time)."
-      );
-      return;
-    }
-
+    const lines = text.split(/\r?\n/);
     const newRows: UIRange[] = [];
-    const cursor = new Date(start);
-    while (cursor <= end) {
-      const dayIdx = cursor.getDay(); // 0=Sun..6=Sat
-      if (patternDays[dayIdx]) {
-        const dateStr = cursor.toISOString().slice(0, 10); // YYYY-MM-DD
-        for (const block of validBlocks) {
-          newRows.push({
-            date: dateStr,
-            startChoice: "dropdown",
-            endChoice: "dropdown",
-            startDropdown: block.start,
-            endDropdown: block.end,
-            startCustom: "",
-            endCustom: "",
-          });
-        }
+    const errors: string[] = [];
+
+    lines.forEach((line, idx) => {
+      const raw = line.trim();
+      if (!raw) return;
+
+      const parts = raw.split("\t");
+      if (parts.length < 3) {
+        errors.push(`Line ${idx + 1}: expected at least 3 columns (Date, Start, End).`);
+        return;
       }
-      cursor.setDate(cursor.getDate() + 1);
+
+      const dateStr = parts[0].trim();
+      const startStr = parts[1].trim();
+      const endStr = parts[2].trim();
+
+      const startDate = new Date(`${dateStr} ${startStr}`);
+      const endDate = new Date(`${dateStr} ${endStr}`);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        errors.push(
+          `Line ${idx + 1}: could not parse date/time. Make sure format is like "12/16/2025    9:00 AM    10:30 AM".`
+        );
+        return;
+      }
+
+      if (endDate <= startDate) {
+        errors.push(`Line ${idx + 1}: end time must be after start time.`);
+        return;
+      }
+
+      const dateInput = toDateInputValue(startDate);
+      const startInput = toTimeInputValue(startDate);
+      const endInput = toTimeInputValue(endDate);
+
+      newRows.push({
+        date: dateInput,
+        start: startInput,
+        end: endInput,
+      });
+    });
+
+    if (errors.length > 0) {
+      setPasteErr(errors.join(" "));
     }
 
-    if (newRows.length === 0) {
-      setPatternErr(
-        "No dates matched that combination. Check your dates and days of week."
-      );
-      return;
+    if (newRows.length > 0) {
+      setRows((prev) => [...prev, ...newRows]);
     }
-
-    setRows((prev) => [...prev, ...newRows]);
-    setPatternErr("");
   }
 
   return (
@@ -367,9 +279,8 @@ export default function Respond() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec availability submission</h1>
           <p className="text-sm text-slate-600">
-            Use the quick pattern tool to fill multiple days at once (e.g. 2
-            weeks of morning and afternoon slots), or add individual ranges
-            manually below.
+            Either type directly in the table, or copy 3 columns from your Google Sheet
+            (Date, Start, End) and paste below. We&apos;ll convert them into time slots.
           </p>
         </header>
 
@@ -379,9 +290,7 @@ export default function Respond() {
             <div className="space-y-3">
               {candidateRanges.length > 0 && (
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold">
-                    Candidate availability:
-                  </div>
+                  <div className="text-sm font-semibold">Candidate availability:</div>
                   <ul className="ml-4 text-sm text-slate-800">
                     {candidateRanges.map((r, i) => (
                       <li key={i}>{humanRangeLocal(r.start, r.end)}</li>
@@ -391,17 +300,14 @@ export default function Respond() {
               )}
               {execListNamesOnly && (
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold">
-                    Execs for this request:
-                  </div>
+                  <div className="text-sm font-semibold">Execs for this request:</div>
                   <pre className="text-sm text-slate-800 whitespace-pre-wrap rounded-md bg-slate-50 border border-slate-200 px-2 py-1">
                     {execListNamesOnly}
                   </pre>
                   <p className="text-[11px] text-slate-500">
-                    Email addresses are hidden on this page. If you support
-                    multiple execs from this panel, submit availability
-                    separately for each exec by changing the Exec name field
-                    below.
+                    Email addresses are hidden on this page. If you support multiple execs from
+                    this panel, submit availability separately for each exec by changing the Exec
+                    name field below.
                   </p>
                 </div>
               )}
@@ -446,9 +352,7 @@ export default function Respond() {
 
           {/* Exec name */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-800">
-              Exec name
-            </label>
+            <label className="text-sm font-medium text-slate-800">Exec name</label>
             <input
               className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
               value={execName}
@@ -457,280 +361,98 @@ export default function Respond() {
             />
           </div>
 
-          {/* QUICK PATTERN GENERATOR */}
-          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-slate-800">
-                  Quick pattern (optional)
-                </div>
-                <p className="text-[11px] text-slate-600">
-                  Pick a date range, choose weekdays, and add one or more time
-                  blocks (for example, 9–10:30 AM and 2:30–4 PM). We&apos;ll
-                  add one row for each date × time block below, where you can
-                  still edit or remove individual rows.
-                </p>
-              </div>
+          {/* Paste-from-sheet helper */}
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="text-sm font-semibold text-slate-800">
+              Paste from Google Sheet (optional)
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {/* Date range */}
-              <div className="space-y-1">
-                <div className="text-xs text-slate-500">Start date</div>
-                <input
-                  type="date"
-                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                  value={patternStartDate}
-                  onChange={(e) => setPatternStartDate(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-slate-500">End date</div>
-                <input
-                  type="date"
-                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                  value={patternEndDate}
-                  onChange={(e) => setPatternEndDate(e.target.value)}
-                />
-              </div>
-
-              {/* Days of week */}
-              <div className="space-y-1">
-                <div className="text-xs text-slate-500">Days of week</div>
-                <div className="flex flex-wrap gap-1">
-                  {weekdayLabels.map((label, idx) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => handleToggleDay(idx)}
-                      className={
-                        "text-[11px] px-2 py-1 rounded-full border " +
-                        (patternDays[idx]
-                          ? "bg-sky-600 text-white border-sky-600"
-                          : "bg-white text-slate-700 border-slate-300")
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Time blocks */}
-            <div className="space-y-2">
-              <div className="text-xs text-slate-500">
-                Time blocks (you can add multiple, e.g. mornings and afternoons)
-              </div>
-              <div className="space-y-2">
-                {patternBlocks.map((block, idx) => (
-                  <div
-                    key={idx}
-                    className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end"
-                  >
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-slate-500">
-                        Start time
-                      </div>
-                      <input
-                        type="time"
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                        value={block.start}
-                        onChange={(e) =>
-                          updatePatternBlock(idx, "start", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-slate-500">
-                        End time
-                      </div>
-                      <input
-                        type="time"
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                        value={block.end}
-                        onChange={(e) =>
-                          updatePatternBlock(idx, "end", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex justify-start sm:justify-end">
-                      {patternBlocks.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removePatternBlock(idx)}
-                          className="text-[11px] text-red-500"
-                        >
-                          Remove block
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={addPatternBlock}
-                className="text-[11px] text-sky-600 hover:text-sky-500"
-              >
-                + Add another time block
-              </button>
-            </div>
-
-            <div className="flex items-center justify-start">
-              <button
-                type="button"
-                onClick={generatePatternRanges}
-                className="text-xs px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
-              >
-                Generate ranges
-              </button>
-            </div>
-
-            {patternErr && (
+            <p className="text-[11px] text-slate-600">
+              In your sheet, use 3 columns: Date, Start, End. Select rows, copy, then paste here.
+              Example row:{" "}
+              <em>12/16/2025&nbsp;&nbsp;&nbsp;9:00 AM&nbsp;&nbsp;&nbsp;10:30 AM</em>
+            </p>
+            <textarea
+              className="w-full min-h-[100px] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 font-mono"
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder={"12/16/2025\t9:00 AM\t10:30 AM\n12/17/2025\t1:00 PM\t3:00 PM"}
+            />
+            <button
+              type="button"
+              onClick={handleConvertPaste}
+              className="text-xs px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+            >
+              Convert &amp; add to table
+            </button>
+            {pasteErr && (
               <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-[11px] text-red-800">
-                {patternErr}
+                {pasteErr}
               </div>
             )}
           </div>
 
-          {/* Time ranges (manual + generated) */}
+          {/* Time ranges table */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-800">
-              Add exec time ranges (date + 30-min dropdown or custom times)
+              Exec time ranges (one row per slot)
             </label>
-            {rows.map((r, i) => (
-              <div
-                key={i}
-                className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50"
-              >
-                {/* Date */}
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="flex flex-col flex-1">
-                    <span className="text-xs text-slate-500 mb-1">Date</span>
-                    <input
-                      type="date"
-                      className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                      value={r.date}
-                      onChange={(e) => updateRow(i, "date", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                {/* Start / End */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {/* Start */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-500">Start time</span>
-                      <button
-                        type="button"
-                        className="text-[11px] text-sky-600"
-                        onClick={() =>
-                          updateRow(
-                            i,
-                            "startChoice",
-                            r.startChoice === "dropdown" ? "custom" : "dropdown"
-                          )
-                        }
-                      >
-                        {r.startChoice === "dropdown"
-                          ? "Use custom"
-                          : "Use dropdown"}
-                      </button>
-                    </div>
-                    {r.startChoice === "dropdown" ? (
-                      <select
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                        value={r.startDropdown}
-                        onChange={(e) =>
-                          updateRow(i, "startDropdown", e.target.value)
-                        }
-                      >
-                        <option value="">Select…</option>
-                        {timeOptions.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="time"
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                        value={r.startCustom}
-                        onChange={(e) =>
-                          updateRow(i, "startCustom", e.target.value)
-                        }
-                      />
-                    )}
-                  </div>
-
-                  {/* End */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-500">End time</span>
-                      <button
-                        type="button"
-                        className="text-[11px] text-sky-600"
-                        onClick={() =>
-                          updateRow(
-                            i,
-                            "endChoice",
-                            r.endChoice === "dropdown" ? "custom" : "dropdown"
-                          )
-                        }
-                      >
-                        {r.endChoice === "dropdown"
-                          ? "Use custom"
-                          : "Use dropdown"}
-                      </button>
-                    </div>
-                    {r.endChoice === "dropdown" ? (
-                      <select
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                        value={r.endDropdown}
-                        onChange={(e) =>
-                          updateRow(i, "endDropdown", e.target.value)
-                        }
-                      >
-                        <option value="">Select…</option>
-                        {timeOptions.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="time"
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
-                        value={r.endCustom}
-                        onChange={(e) =>
-                          updateRow(i, "endCustom", e.target.value)
-                        }
-                      />
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    className="text-xs text-red-500"
-                    onClick={() => removeRow(i)}
-                  >
-                    Remove range
-                  </button>
-                </div>
-              </div>
-            ))}
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm text-left">
+                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-2 pr-4">Date</th>
+                    <th className="py-2 pr-4">Start</th>
+                    <th className="py-2 pr-4">End</th>
+                    <th className="py-2 pr-4">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i} className="border-b border-slate-100 last:border-0">
+                      <td className="py-2 pr-4">
+                        <input
+                          type="date"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900"
+                          value={r.date}
+                          onChange={(e) => updateRow(i, "date", e.target.value)}
+                        />
+                      </td>
+                      <td className="py-2 pr-4">
+                        <input
+                          type="time"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900"
+                          value={r.start}
+                          onChange={(e) => updateRow(i, "start", e.target.value)}
+                        />
+                      </td>
+                      <td className="py-2 pr-4">
+                        <input
+                          type="time"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900"
+                          value={r.end}
+                          onChange={(e) => updateRow(i, "end", e.target.value)}
+                        />
+                      </td>
+                      <td className="py-2 pr-4">
+                        <button
+                          type="button"
+                          className="text-xs text-red-500"
+                          onClick={() => removeRow(i)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <button
               className="text-xs text-sky-600 hover:text-sky-500"
               type="button"
               onClick={addRow}
             >
-              Add another range
+              + Add another row
             </button>
           </div>
 
@@ -764,6 +486,9 @@ export default function Respond() {
             </div>
           )}
         </section>
+
+        {/* Shared chat for TAC + EA */}
+        <ChatPanel role="ea" />
       </div>
     </main>
   );

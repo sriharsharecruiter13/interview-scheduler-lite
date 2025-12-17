@@ -133,21 +133,6 @@ function generateSlots(
   return slots;
 }
 
-// Helper: hide emails from execList for dashboard display
-function stripExecEmails(execList: string): string {
-  if (!execList) return "";
-  return execList
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split(/[-–—]/);
-      return (parts[0] || "").trim();
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
 export default function DashboardPage() {
   const [data, setData] = useState<WindowResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -173,13 +158,8 @@ export default function DashboardPage() {
   const candidateName = data?.window?.candidateName ?? "Candidate";
   const candidateTitle = data?.window?.title ?? "";
   const candidateRanges = data?.window?.candidateRanges ?? [];
-  const rawExecList = data?.window?.execList ?? "";
+  const execList = data?.window?.execList ?? "";
   const submissions = data?.submissions ?? [];
-
-  const execListNamesOnly = useMemo(
-    () => stripExecEmails(rawExecList),
-    [rawExecList]
-  );
 
   const candidateWindowLabel = humanCandidateWindow(candidateRanges);
 
@@ -296,13 +276,13 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {execListNamesOnly && (
+          {execList && (
             <div className="space-y-1">
               <div className="text-sm font-semibold text-slate-800">
                 Execs for this request
               </div>
               <pre className="text-sm text-slate-800 whitespace-pre-wrap rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
-                {execListNamesOnly}
+                {execList}
               </pre>
             </div>
           )}
@@ -405,25 +385,23 @@ export default function DashboardPage() {
               Majority 60-min window
             </h2>
             {majoritySlot ? (
-              <div className="mt-2 space-y-1">
-                {(() => {
-                  const { dateLabel, timeLabel } = formatDateRange(
-                    majoritySlot.start,
-                    majoritySlot.end
-                  );
-                  return (
-                    <>
-                      <div className="text-sm font-semibold text-blue-900">
-                        {dateLabel} {timeLabel}
-                      </div>
-                      <div className="text-xs text-blue-800">
-                        Aligned execs ({majoritySlot.execs.length}):{" "}
-                        {majoritySlot.execs.join(", ")}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
+              (() => {
+                const { dateLabel, timeLabel } = formatDateRange(
+                  majoritySlot.start,
+                  majoritySlot.end
+                );
+                return (
+                  <div className="mt-2 space-y-1">
+                    <div className="text-sm font-semibold text-blue-900">
+                      {dateLabel} {timeLabel}
+                    </div>
+                    <div className="text-xs text-blue-800">
+                      Aligned execs ({majoritySlot.execs.length}):{" "}
+                      {majoritySlot.execs.join(", ")}
+                    </div>
+                  </div>
+                );
+              })()
             ) : (
               <div className="mt-2 text-sm text-blue-900">
                 No common 60-min window found yet.
@@ -480,10 +458,12 @@ export default function DashboardPage() {
               <div className="mt-2 text-sm text-amber-900">
                 — All execs are aligned for the majority window.
               </div>
-            )}        {/* TAC + EA shared chat */}
-        <ChatPanel role="tac" />
+            )}
           </div>
         </section>
+
+        {/* Shared TAC + EA chat */}
+        <ChatPanel role="tac" />
       </div>
     </main>
   );
