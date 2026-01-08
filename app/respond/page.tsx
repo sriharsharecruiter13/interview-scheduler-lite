@@ -38,55 +38,217 @@ function dayKey(iso: string) {
   });
 }
 
-type UIRange = {
-  date: string; // YYYY-MM-DD
-  start: string; // HH:MM (24h)
-  end: string; // HH:MM (24h)
+/** ---------- Manual text parsing helpers ---------- **/
+
+// Accepts things like:
+// "Jan 16 10AM-11:30AM; Jan 16 2:30PM-4PM; Jan 17 9AM-11AM"
+// Also accepts commas/newlines as separators.
+function splitEntries(text: string): string[] {
+  return text
+    .split(/[\n;]+/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Normalize spaces and dashes
+function normalizeEntry(s: string): string {
+  return s
+    .replace(/\s+/g, " ")
+    .replace(/[–—]/g, "-")
+    .replace(/\s*-\s*/g, "-")
+    .trim();
+}
+
+const MONTHS: Record<string, number> = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11,
 };
 
-function toISO(date: string, time: string): string {
-  if (!date || !time) return "";
-  return `${date}T${time}`;
+// Parse a date prefix like "Jan 16" OR "Jan 16 2026" OR "1/16" OR "1/16/2026"
+function parseDatePrefix(s: string): { date: Date; rest: string } | null {
+  const t = s.trim();
+
+  // 1) Month name formats: "Jan 16" or "Jan 16 2026"
+  {
+    const m = t.match(
+      /^([A-Za-z]{3,9})\s+(\d{1,2})(?:\s+(\d{4}))?\s+(.*)$/i
+    );
+    if (m) {
+      const monRaw = (m[1] || "").toLowerCase();
+      const day = Number(m[2]);
+      const year = m[3] ? Number(m[3]) : new Date().getFullYear();
+      const mon = MONTHS[monRaw];
+      if (mon === undefined) return null;
+      const d = new Date(year, mon, day, 0, 0, 0, 0);
+      if (isNaN(d.getTime())) return null;
+      return { date: d, rest: (m[4] || "").trim() };
+    }
+  }
+
+  // 2) Numeric formats: "1/16 10AM-11AM" or "01/16/2026 10:00-11:00"
+  {
+    const m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.*)$/);
+    if (m) {
+      const mon = Number(m[1]) - 1;
+      const day = Number(m[2]);
+      let year = new Date().getFullYear();
+      if (m[3]) {
+        const y = Number(m[3]);
+        year = y < 100 ? 2000 + y : y;
+      }
+      const d = new Date(year, mon, day, 0, 0, 0, 0);
+      if (isNaN(d.getTime())) return null;
+      return { date: d, rest: (m[4] || "").trim() };
+    }
+  }
+
+  return null;
 }
 
-function uiRowToRange(r: UIRange): Range | null {
-  if (!r.date || !r.start || !r.end) return null;
-  const startISO = toISO(r.date, r.start);
-  const endISO = toISO(r.date, r.end);
-  if (!startISO || !endISO) return null;
-  if (new Date(endISO) <= new Date(startISO)) return null;
-  return { start: startISO, end: endISO };
+// Parse time token like "10AM", "11:30am", "14:00", "2:30PM"
+function parseTimeToken(token: string): { hours: number; minutes: number } | null {
+  const t = token.trim().toLowerCase().replace(/\./g, "");
+
+  // 24h "14:30" or "14"
+  const m24 = t.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  const hasAmPm = /am|pm$/.test(t);
+
+  if (!hasAmPm && m24) {
+    const hh = Number(m24[1]);
+    const mm = m24[2] ? Number(m24[2]) : 0;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return { hours: hh, minutes: mm };
+  }
+
+  // 12h "10am" "10:30pm"
+  const m12 = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/);
+  if (m12) {
+    let hh = Number(m12[1]);
+    const mm = m12[2] ? Number(m12[2]) : 0;
+    const ap = m12[3];
+    if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
+    if (ap === "am") {
+      if (hh === 12) hh = 0;
+    } else {
+      if (hh !== 12) hh += 12;
+    }
+    return { hours: hh, minutes: mm };
+  }
+
+  return null;
 }
 
-// Helpers for parsing pasted rows from Google Sheets
-function toDateInputValue(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function toISOForLocal(date: Date): string {
+  // This keeps local time without forcing Z; your app currently uses local ISO-like strings
+  // e.g. "2026-01-16T10:00"
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}T${hh}:${mm}`;
 }
 
-function toTimeInputValue(d: Date): string {
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
+// Parse one entry like: "Jan 16 10AM-11:30AM"
+function parseOneManualEntry(entry: string): { range: Range | null; error?: string } {
+  const normalized = normalizeEntry(entry);
+
+  const dp = parseDatePrefix(normalized);
+  if (!dp) return { range: null, error: `Could not read date in: "${entry}"` };
+
+  const { date, rest } = dp;
+
+  // rest expected like "10AM-11:30AM"
+  const parts = rest.split("-");
+  if (parts.length !== 2) {
+    return { range: null, error: `Expected "start-end" after date in: "${entry}"` };
+  }
+
+  const startTok = parts[0].trim();
+  const endTok = parts[1].trim();
+
+  const st = parseTimeToken(startTok);
+  const en = parseTimeToken(endTok);
+  if (!st || !en) {
+    return { range: null, error: `Could not read time in: "${entry}"` };
+  }
+
+  const start = new Date(date);
+  start.setHours(st.hours, st.minutes, 0, 0);
+
+  const end = new Date(date);
+  end.setHours(en.hours, en.minutes, 0, 0);
+
+  if (end <= start) {
+    return { range: null, error: `End must be after start in: "${entry}"` };
+  }
+
+  return {
+    range: { start: toISOForLocal(start), end: toISOForLocal(end) },
+  };
 }
+
+function dedupeRanges(ranges: Range[]): Range[] {
+  const seen = new Set<string>();
+  const out: Range[] = [];
+  for (const r of ranges) {
+    const key = `${r.start}|${r.end}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+/** ---------- Component ---------- **/
 
 export default function Respond() {
   const [execName, setExecName] = useState("");
-  const [rows, setRows] = useState<UIRange[]>([{ date: "", start: "", end: "" }]);
   const [candidateRanges, setCandidateRanges] = useState<Range[]>([]);
   const [execList, setExecList] = useState("");
   const [subs, setSubs] = useState<Submission[]>([]);
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
 
-  // Paste-from-sheet state
-  const [pasteText, setPasteText] = useState("");
-  const [pasteErr, setPasteErr] = useState("");
+  // Manual entry + preview
+  const [manualText, setManualText] = useState("");
+  const [preview, setPreview] = useState<Range[]>([]);
+  const [manualErr, setManualErr] = useState<string>("");
 
-  const timeOptions = useMemo(() => {
-    return [];
+  async function load() {
+    const r = await fetch(`/api/window`);
+    const d = (await r.json()) as WindowResponse;
+    setCandidateRanges(d?.window?.candidateRanges || []);
+    setExecList(d?.window?.execList || "");
+    setSubs(d?.submissions || []);
+  }
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 10000);
+    return () => clearInterval(t);
   }, []);
 
   // names-only version of execList (no emails) for EA view
@@ -104,45 +266,66 @@ export default function Respond() {
       .join("\n");
   }, [execList]);
 
-  async function load() {
-    const r = await fetch(`/api/window`);
-    const d = (await r.json()) as WindowResponse;
-    setCandidateRanges(d?.window?.candidateRanges || []);
-    setExecList(d?.window?.execList || "");
-    setSubs(d?.submissions || []);
-  }
+  const grouped = useMemo(() => {
+    const map: Record<string, Record<string, string[]>> = {};
+    for (const s of subs) {
+      for (const r of s.ranges || []) {
+        const day = dayKey(r.start);
+        map[day] ||= {};
+        map[day][s.execName] ||= [];
+        const tf = (x: string) =>
+          new Intl.DateTimeFormat(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(new Date(x));
+        map[day][s.execName].push(`${tf(r.start)}–${tf(r.end)}`);
+      }
+    }
+    return map;
+  }, [subs]);
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
-  }, []);
+  const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
 
-  function updateRow(idx: number, key: keyof UIRange, value: string) {
-    setRows((list) =>
-      list.map((row, i) => (i === idx ? { ...row, [key]: value } : row))
-    );
-  }
+  function convertManualToPreview() {
+    setManualErr("");
+    const txt = manualText.trim();
+    if (!txt) {
+      setManualErr("Enter at least one availability line.");
+      setPreview([]);
+      return;
+    }
 
-  function addRow() {
-    setRows((list) => [...list, { date: "", start: "", end: "" }]);
-  }
+    const entries = splitEntries(txt);
+    const errors: string[] = [];
+    const ranges: Range[] = [];
 
-  function removeRow(i: number) {
-    setRows((list) => list.filter((_, idx) => idx !== i));
+    for (const e of entries) {
+      const parsed = parseOneManualEntry(e);
+      if (parsed.range) ranges.push(parsed.range);
+      else if (parsed.error) errors.push(parsed.error);
+    }
+
+    const clean = dedupeRanges(ranges);
+
+    if (errors.length) {
+      setManualErr(errors.slice(0, 6).join(" | "));
+    }
+
+    setPreview(clean);
   }
 
   async function submit() {
     setErr("");
     setDone("");
     try {
-      const clean: Range[] = rows
-        .map(uiRowToRange)
-        .filter((r): r is Range => !!r);
-
       if (!execName) throw new Error("Enter Exec name.");
-      if (clean.length === 0)
-        throw new Error("Add at least one valid time range.");
+
+      const clean = preview.length ? preview : [];
+      if (clean.length === 0) {
+        throw new Error(
+          "No ranges to save yet. Paste/type availability then click “Convert to preview”."
+        );
+      }
 
       const res = await fetch("/api/ea/submit", {
         method: "POST",
@@ -156,7 +339,8 @@ export default function Respond() {
       }
 
       setDone("Saved. Your previous availability (if any) was replaced.");
-      setRows([{ date: "", start: "", end: "" }]);
+      setManualText("");
+      setPreview([]);
       load();
     } catch (e: any) {
       setErr(e.message || "Failed");
@@ -184,92 +368,9 @@ export default function Respond() {
     }
   }
 
-  const grouped = useMemo(() => {
-    const map: Record<string, Record<string, string[]>> = {};
-    for (const s of subs) {
-      for (const r of s.ranges || []) {
-        const day = dayKey(r.start);
-        map[day] ||= {};
-        map[day][s.execName] ||= [];
-        const tf = (x: string) =>
-          new Intl.DateTimeFormat(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-          }).format(new Date(x));
-        map[day][s.execName].push(`${tf(r.start)}–${tf(r.end)}`);
-      }
-    }
-    return map;
-  }, [subs]);
-
-  const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
-
-  // Parse pasted text (expected format: Date, Start, End in 3 columns)
-  function handleConvertPaste() {
-    setPasteErr("");
-    const text = pasteText.trim();
-    if (!text) {
-      setPasteErr("Paste rows from your sheet first.");
-      return;
-    }
-
-    const lines = text.split(/\r?\n/);
-    const newRows: UIRange[] = [];
-    const errors: string[] = [];
-
-    lines.forEach((line, idx) => {
-      const raw = line.trim();
-      if (!raw) return;
-
-      const parts = raw.split("\t");
-      if (parts.length < 3) {
-        errors.push(`Line ${idx + 1}: expected at least 3 columns (Date, Start, End).`);
-        return;
-      }
-
-      const dateStr = parts[0].trim();
-      const startStr = parts[1].trim();
-      const endStr = parts[2].trim();
-
-      const startDate = new Date(`${dateStr} ${startStr}`);
-      const endDate = new Date(`${dateStr} ${endStr}`);
-
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        errors.push(
-          `Line ${idx + 1}: could not parse date/time. Make sure format is like "12/16/2025    9:00 AM    10:30 AM".`
-        );
-        return;
-      }
-
-      if (endDate <= startDate) {
-        errors.push(`Line ${idx + 1}: end time must be after start time.`);
-        return;
-      }
-
-      const dateInput = toDateInputValue(startDate);
-      const startInput = toTimeInputValue(startDate);
-      const endInput = toTimeInputValue(endDate);
-
-      newRows.push({
-        date: dateInput,
-        start: startInput,
-        end: endInput,
-      });
-    });
-
-    if (errors.length > 0) {
-      setPasteErr(errors.join(" "));
-    }
-
-    if (newRows.length > 0) {
-      setRows((prev) => [...prev, ...newRows]);
-    }
-  }
-
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 px-4 py-6">
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Logo */}
         <div className="flex justify-end">
           <img src="/intuit-logo.png" alt="Intuit" className="h-9 w-auto" />
         </div>
@@ -279,13 +380,15 @@ export default function Respond() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec availability submission</h1>
           <p className="text-sm text-slate-600">
-            Either type directly in the table, or copy 3 columns from your Google Sheet
-            (Date, Start, End) and paste below. We&apos;ll convert them into time slots.
+            Fast entry: type ranges like{" "}
+            <span className="font-mono text-xs">
+              Jan 16 10AM-11:30AM; Jan 16 2:30PM-4PM; Jan 17 9AM-11AM
+            </span>{" "}
+            then convert to preview and submit.
           </p>
         </header>
 
         <section className="space-y-4 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-          {/* Candidate availability + exec list */}
           {(candidateRanges.length > 0 || execListNamesOnly) && (
             <div className="space-y-3">
               {candidateRanges.length > 0 && (
@@ -305,9 +408,7 @@ export default function Respond() {
                     {execListNamesOnly}
                   </pre>
                   <p className="text-[11px] text-slate-500">
-                    Email addresses are hidden on this page. If you support multiple execs from
-                    this panel, submit availability separately for each exec by changing the Exec
-                    name field below.
+                    Email addresses are hidden on this page. If you support multiple execs, submit separately per exec name.
                   </p>
                 </div>
               )}
@@ -334,9 +435,7 @@ export default function Respond() {
                   <tbody>
                     {Object.entries(grouped).map(([day, row]) => (
                       <tr key={day} className="border-b border-slate-100">
-                        <td className="py-2 pr-4 whitespace-nowrap font-semibold">
-                          {day}
-                        </td>
+                        <td className="py-2 pr-4 whitespace-nowrap font-semibold">{day}</td>
                         {execColumns.map((name) => (
                           <td key={name} className="py-2 pr-4">
                             {(row as any)[name]?.join(", ") || "—"}
@@ -350,7 +449,6 @@ export default function Respond() {
             </div>
           )}
 
-          {/* Exec name */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-800">Exec name</label>
             <input
@@ -361,102 +459,88 @@ export default function Respond() {
             />
           </div>
 
-          {/* Paste-from-sheet helper */}
+          {/* Manual entry */}
           <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <div className="text-sm font-semibold text-slate-800">
-              Paste from Google Sheet (optional)
+              Enter availability manually
             </div>
             <p className="text-[11px] text-slate-600">
-              In your sheet, use 3 columns: Date, Start, End. Select rows, copy, then paste here.
-              Example row:{" "}
-              <em>12/16/2025&nbsp;&nbsp;&nbsp;9:00 AM&nbsp;&nbsp;&nbsp;10:30 AM</em>
+              One per line (or separate with semicolons). Supported date formats:{" "}
+              <span className="font-mono">Jan 16</span>,{" "}
+              <span className="font-mono">Jan 16 2026</span>,{" "}
+              <span className="font-mono">1/16</span>,{" "}
+              <span className="font-mono">1/16/2026</span>. Times:{" "}
+              <span className="font-mono">10AM</span>,{" "}
+              <span className="font-mono">11:30AM</span>,{" "}
+              <span className="font-mono">14:00</span>.
             </p>
+
             <textarea
-              className="w-full min-h-[100px] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 font-mono"
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              placeholder={"12/16/2025\t9:00 AM\t10:30 AM\n12/17/2025\t1:00 PM\t3:00 PM"}
+              className="w-full min-h-[110px] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 font-mono"
+              value={manualText}
+              onChange={(e) => setManualText(e.target.value)}
+              placeholder={
+                "Jan 16 10AM-11:30AM\nJan 16 2:30PM-4PM\nJan 17 9AM-11AM\nJan 17 1PM-3PM"
+              }
             />
-            <button
-              type="button"
-              onClick={handleConvertPaste}
-              className="text-xs px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
-            >
-              Convert &amp; add to table
-            </button>
-            {pasteErr && (
-              <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-[11px] text-red-800">
-                {pasteErr}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={convertManualToPreview}
+                className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
+              >
+                Convert to preview
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setManualText("");
+                  setPreview([]);
+                  setManualErr("");
+                }}
+                className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
+              >
+                Clear
+              </button>
+            </div>
+
+            {manualErr && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900">
+                {manualErr}
               </div>
             )}
           </div>
 
-          {/* Time ranges table */}
+          {/* Preview */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-800">
-              Exec time ranges (one row per slot)
-            </label>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm text-left">
-                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="py-2 pr-4">Date</th>
-                    <th className="py-2 pr-4">Start</th>
-                    <th className="py-2 pr-4">End</th>
-                    <th className="py-2 pr-4">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i} className="border-b border-slate-100 last:border-0">
-                      <td className="py-2 pr-4">
-                        <input
-                          type="date"
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900"
-                          value={r.date}
-                          onChange={(e) => updateRow(i, "date", e.target.value)}
-                        />
-                      </td>
-                      <td className="py-2 pr-4">
-                        <input
-                          type="time"
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900"
-                          value={r.start}
-                          onChange={(e) => updateRow(i, "start", e.target.value)}
-                        />
-                      </td>
-                      <td className="py-2 pr-4">
-                        <input
-                          type="time"
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900"
-                          value={r.end}
-                          onChange={(e) => updateRow(i, "end", e.target.value)}
-                        />
-                      </td>
-                      <td className="py-2 pr-4">
-                        <button
-                          type="button"
-                          className="text-xs text-red-500"
-                          onClick={() => removeRow(i)}
-                        >
-                          Remove
-                        </button>
-                      </td>
+            <div className="text-sm font-semibold text-slate-800">Preview</div>
+            {preview.length === 0 ? (
+              <div className="text-xs text-slate-500">
+                Convert your manual entry to see preview rows here.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm text-left">
+                  <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="py-2 pr-4">Start</th>
+                      <th className="py-2 pr-4">End</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <button
-              className="text-xs text-sky-600 hover:text-sky-500"
-              type="button"
-              onClick={addRow}
-            >
-              + Add another row
-            </button>
+                  </thead>
+                  <tbody>
+                    {preview.map((r, i) => (
+                      <tr key={`${r.start}-${r.end}-${i}`} className="border-b border-slate-100 last:border-0">
+                        <td className="py-2 pr-4 text-slate-800">{new Date(r.start).toLocaleString()}</td>
+                        <td className="py-2 pr-4 text-slate-800">{new Date(r.end).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
-          {/* Buttons */}
           <div className="flex flex-wrap gap-2">
             <button
               className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
@@ -487,7 +571,6 @@ export default function Respond() {
           )}
         </section>
 
-        {/* Shared chat for TAC + EA */}
         <ChatPanel role="ea" />
       </div>
     </main>
