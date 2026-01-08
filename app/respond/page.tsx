@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AppNav from "@/components/AppNav";
 import ChatPanel from "@/components/ChatPanel";
 
@@ -20,29 +20,34 @@ type WindowResponse = {
 function humanRangeLocal(sISO: string, eISO: string) {
   const s = new Date(sISO);
   const e = new Date(eISO);
-  const dFmt = new Intl.DateTimeFormat(undefined, {
-    day: "2-digit",
-    month: "short",
-  });
-  const tFmt = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const dFmt = new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short" });
+  const tFmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
   return `${dFmt.format(s)} ${tFmt.format(s)} – ${tFmt.format(e)}`;
 }
 
 function dayKey(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, {
-    day: "2-digit",
-    month: "short",
-  });
+  return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+}
+
+function buildTimeOptions(fromHour = 7, toHour = 20): string[] {
+  const opts: string[] = [];
+  for (let h = fromHour; h <= toHour; h++) {
+    for (const m of [0, 30]) {
+      const hh = String(h).padStart(2, "0");
+      const mm = String(m).padStart(2, "0");
+      opts.push(`${hh}:${mm}`);
+    }
+  }
+  return opts;
+}
+
+function toISO(date: string, time: string): string {
+  if (!date || !time) return "";
+  return `${date}T${time}`;
 }
 
 /** ---------- Manual text parsing helpers ---------- **/
 
-// Accepts things like:
-// "Jan 16 10AM-11:30AM; Jan 16 2:30PM-4PM; Jan 17 9AM-11AM"
-// Also accepts commas/newlines as separators.
 function splitEntries(text: string): string[] {
   return text
     .split(/[\n;]+/g)
@@ -50,7 +55,6 @@ function splitEntries(text: string): string[] {
     .filter(Boolean);
 }
 
-// Normalize spaces and dashes
 function normalizeEntry(s: string): string {
   return s
     .replace(/\s+/g, " ")
@@ -60,41 +64,26 @@ function normalizeEntry(s: string): string {
 }
 
 const MONTHS: Record<string, number> = {
-  jan: 0,
-  january: 0,
-  feb: 1,
-  february: 1,
-  mar: 2,
-  march: 2,
-  apr: 3,
-  april: 3,
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
   may: 4,
-  jun: 5,
-  june: 5,
-  jul: 6,
-  july: 6,
-  aug: 7,
-  august: 7,
-  sep: 8,
-  sept: 8,
-  september: 8,
-  oct: 9,
-  october: 9,
-  nov: 10,
-  november: 10,
-  dec: 11,
-  december: 11,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11,
 };
 
-// Parse a date prefix like "Jan 16" OR "Jan 16 2026" OR "1/16" OR "1/16/2026"
 function parseDatePrefix(s: string): { date: Date; rest: string } | null {
   const t = s.trim();
 
-  // 1) Month name formats: "Jan 16" or "Jan 16 2026"
+  // "Jan 16 10AM-11AM" or "Jan 16 2026 10AM-11AM"
   {
-    const m = t.match(
-      /^([A-Za-z]{3,9})\s+(\d{1,2})(?:\s+(\d{4}))?\s+(.*)$/i
-    );
+    const m = t.match(/^([A-Za-z]{3,9})\s+(\d{1,2})(?:\s+(\d{4}))?\s+(.*)$/i);
     if (m) {
       const monRaw = (m[1] || "").toLowerCase();
       const day = Number(m[2]);
@@ -107,7 +96,7 @@ function parseDatePrefix(s: string): { date: Date; rest: string } | null {
     }
   }
 
-  // 2) Numeric formats: "1/16 10AM-11AM" or "01/16/2026 10:00-11:00"
+  // "1/16 10AM-11AM" or "1/16/2026 10AM-11AM"
   {
     const m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.*)$/);
     if (m) {
@@ -127,22 +116,22 @@ function parseDatePrefix(s: string): { date: Date; rest: string } | null {
   return null;
 }
 
-// Parse time token like "10AM", "11:30am", "14:00", "2:30PM"
 function parseTimeToken(token: string): { hours: number; minutes: number } | null {
   const t = token.trim().toLowerCase().replace(/\./g, "");
-
-  // 24h "14:30" or "14"
-  const m24 = t.match(/^(\d{1,2})(?::(\d{2}))?$/);
   const hasAmPm = /am|pm$/.test(t);
 
-  if (!hasAmPm && m24) {
-    const hh = Number(m24[1]);
-    const mm = m24[2] ? Number(m24[2]) : 0;
-    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-    return { hours: hh, minutes: mm };
+  // 24h: "14:30" or "14"
+  if (!hasAmPm) {
+    const m24 = t.match(/^(\d{1,2})(?::(\d{2}))?$/);
+    if (m24) {
+      const hh = Number(m24[1]);
+      const mm = m24[2] ? Number(m24[2]) : 0;
+      if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+      return { hours: hh, minutes: mm };
+    }
   }
 
-  // 12h "10am" "10:30pm"
+  // 12h: "10am" "10:30pm"
   const m12 = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/);
   if (m12) {
     let hh = Number(m12[1]);
@@ -160,9 +149,7 @@ function parseTimeToken(token: string): { hours: number; minutes: number } | nul
   return null;
 }
 
-function toISOForLocal(date: Date): string {
-  // This keeps local time without forcing Z; your app currently uses local ISO-like strings
-  // e.g. "2026-01-16T10:00"
+function toLocalISO(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
@@ -171,29 +158,20 @@ function toISOForLocal(date: Date): string {
   return `${y}-${m}-${d}T${hh}:${mm}`;
 }
 
-// Parse one entry like: "Jan 16 10AM-11:30AM"
 function parseOneManualEntry(entry: string): { range: Range | null; error?: string } {
   const normalized = normalizeEntry(entry);
-
   const dp = parseDatePrefix(normalized);
   if (!dp) return { range: null, error: `Could not read date in: "${entry}"` };
 
   const { date, rest } = dp;
-
-  // rest expected like "10AM-11:30AM"
   const parts = rest.split("-");
   if (parts.length !== 2) {
     return { range: null, error: `Expected "start-end" after date in: "${entry}"` };
   }
 
-  const startTok = parts[0].trim();
-  const endTok = parts[1].trim();
-
-  const st = parseTimeToken(startTok);
-  const en = parseTimeToken(endTok);
-  if (!st || !en) {
-    return { range: null, error: `Could not read time in: "${entry}"` };
-  }
+  const st = parseTimeToken(parts[0].trim());
+  const en = parseTimeToken(parts[1].trim());
+  if (!st || !en) return { range: null, error: `Could not read time in: "${entry}"` };
 
   const start = new Date(date);
   start.setHours(st.hours, st.minutes, 0, 0);
@@ -201,13 +179,9 @@ function parseOneManualEntry(entry: string): { range: Range | null; error?: stri
   const end = new Date(date);
   end.setHours(en.hours, en.minutes, 0, 0);
 
-  if (end <= start) {
-    return { range: null, error: `End must be after start in: "${entry}"` };
-  }
+  if (end <= start) return { range: null, error: `End must be after start in: "${entry}"` };
 
-  return {
-    range: { start: toISOForLocal(start), end: toISOForLocal(end) },
-  };
+  return { range: { start: toLocalISO(start), end: toLocalISO(end) } };
 }
 
 function dedupeRanges(ranges: Range[]): Range[] {
@@ -222,27 +196,89 @@ function dedupeRanges(ranges: Range[]): Range[] {
   return out;
 }
 
-/** ---------- Component ---------- **/
+/** ---------- Easy range UI (like candidate page) ---------- **/
+
+type EasyRow = {
+  date: string;
+  startChoice: "dropdown" | "custom";
+  endChoice: "dropdown" | "custom";
+  startDropdown: string;
+  endDropdown: string;
+  startCustom: string;
+  endCustom: string;
+};
+
+function easyRowToRange(r: EasyRow): Range | null {
+  const startTime = r.startChoice === "dropdown" ? r.startDropdown : r.startCustom;
+  const endTime = r.endChoice === "dropdown" ? r.endDropdown : r.endCustom;
+  const startISO = toISO(r.date, startTime);
+  const endISO = toISO(r.date, endTime);
+  if (!startISO || !endISO) return null;
+  if (new Date(endISO) <= new Date(startISO)) return null;
+  return { start: startISO, end: endISO };
+}
 
 export default function Respond() {
   const [execName, setExecName] = useState("");
+
+  // Window data (we keep last-good values so they DON'T disappear)
   const [candidateRanges, setCandidateRanges] = useState<Range[]>([]);
   const [execList, setExecList] = useState("");
   const [subs, setSubs] = useState<Submission[]>([]);
+  const loadedOnceRef = useRef(false);
+
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
 
-  // Manual entry + preview
+  // Input mode
+  const [mode, setMode] = useState<"easy" | "manual">("easy");
+
+  // Easy ranges
+  const timeOptions = useMemo(() => buildTimeOptions(), []);
+  const [easyRows, setEasyRows] = useState<EasyRow[]>([
+    {
+      date: "",
+      startChoice: "dropdown",
+      endChoice: "dropdown",
+      startDropdown: "",
+      endDropdown: "",
+      startCustom: "",
+      endCustom: "",
+    },
+  ]);
+
+  // Manual entry
   const [manualText, setManualText] = useState("");
+  const [manualErr, setManualErr] = useState("");
+
+  // Preview ranges to be saved
   const [preview, setPreview] = useState<Range[]>([]);
-  const [manualErr, setManualErr] = useState<string>("");
 
   async function load() {
-    const r = await fetch(`/api/window`);
-    const d = (await r.json()) as WindowResponse;
-    setCandidateRanges(d?.window?.candidateRanges || []);
-    setExecList(d?.window?.execList || "");
-    setSubs(d?.submissions || []);
+    try {
+      const r = await fetch(`/api/window`, { cache: "no-store" });
+      if (!r.ok) return;
+      const d = (await r.json()) as WindowResponse;
+
+      // Only update window fields if we actually got values.
+      // This prevents "disappearing" when a poll returns empty/temporary data.
+      const nextCandidate = d?.window?.candidateRanges || [];
+      const nextExecList = d?.window?.execList || "";
+      const nextSubs = d?.submissions || [];
+
+      if (!loadedOnceRef.current) {
+        setCandidateRanges(nextCandidate);
+        setExecList(nextExecList);
+        loadedOnceRef.current = true;
+      } else {
+        if (nextCandidate.length > 0) setCandidateRanges(nextCandidate);
+        if (nextExecList) setExecList(nextExecList);
+      }
+
+      setSubs(nextSubs);
+    } catch {
+      // keep last good values on any error
+    }
   }
 
   useEffect(() => {
@@ -251,7 +287,7 @@ export default function Respond() {
     return () => clearInterval(t);
   }, []);
 
-  // names-only version of execList (no emails) for EA view
+  // Names-only exec list for EA view
   const execListNamesOnly = useMemo(() => {
     if (!execList) return "";
     return execList
@@ -274,10 +310,7 @@ export default function Respond() {
         map[day] ||= {};
         map[day][s.execName] ||= [];
         const tf = (x: string) =>
-          new Intl.DateTimeFormat(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-          }).format(new Date(x));
+          new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(x));
         map[day][s.execName].push(`${tf(r.start)}–${tf(r.end)}`);
       }
     }
@@ -286,12 +319,48 @@ export default function Respond() {
 
   const execColumns = Array.from(new Set(subs.map((s) => s.execName)));
 
+  function updateEasyRow<K extends keyof EasyRow>(idx: number, key: K, value: EasyRow[K]) {
+    setEasyRows((list) => list.map((row, i) => (i === idx ? { ...row, [key]: value } : row)));
+  }
+
+  function addEasyRow() {
+    setEasyRows((list) => [
+      ...list,
+      {
+        date: "",
+        startChoice: "dropdown",
+        endChoice: "dropdown",
+        startDropdown: "",
+        endDropdown: "",
+        startCustom: "",
+        endCustom: "",
+      },
+    ]);
+  }
+
+  function removeEasyRow(i: number) {
+    setEasyRows((list) => list.filter((_, idx) => idx !== i));
+  }
+
+  function convertEasyToPreview() {
+    const ranges = easyRows
+      .map(easyRowToRange)
+      .filter((r): r is Range => !!r);
+
+    if (ranges.length === 0) {
+      setErr("Add at least one valid range (date + start + end), then convert.");
+      return;
+    }
+
+    setErr("");
+    setPreview((prev) => dedupeRanges([...prev, ...ranges]));
+  }
+
   function convertManualToPreview() {
     setManualErr("");
     const txt = manualText.trim();
     if (!txt) {
       setManualErr("Enter at least one availability line.");
-      setPreview([]);
       return;
     }
 
@@ -305,32 +374,24 @@ export default function Respond() {
       else if (parsed.error) errors.push(parsed.error);
     }
 
+    if (errors.length) setManualErr(errors.slice(0, 6).join(" | "));
+
     const clean = dedupeRanges(ranges);
-
-    if (errors.length) {
-      setManualErr(errors.slice(0, 6).join(" | "));
-    }
-
-    setPreview(clean);
+    if (clean.length) setPreview((prev) => dedupeRanges([...prev, ...clean]));
   }
 
   async function submit() {
     setErr("");
     setDone("");
+
     try {
       if (!execName) throw new Error("Enter Exec name.");
-
-      const clean = preview.length ? preview : [];
-      if (clean.length === 0) {
-        throw new Error(
-          "No ranges to save yet. Paste/type availability then click “Convert to preview”."
-        );
-      }
+      if (preview.length === 0) throw new Error("No ranges to save. Convert ranges into preview first.");
 
       const res = await fetch("/api/ea/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ execName, ranges: clean }),
+        body: JSON.stringify({ execName, ranges: preview }),
       });
 
       if (!res.ok) {
@@ -339,7 +400,19 @@ export default function Respond() {
       }
 
       setDone("Saved. Your previous availability (if any) was replaced.");
+      setEasyRows([
+        {
+          date: "",
+          startChoice: "dropdown",
+          endChoice: "dropdown",
+          startDropdown: "",
+          endDropdown: "",
+          startCustom: "",
+          endCustom: "",
+        },
+      ]);
       setManualText("");
+      setManualErr("");
       setPreview([]);
       load();
     } catch (e: any) {
@@ -380,11 +453,7 @@ export default function Respond() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Exec availability submission</h1>
           <p className="text-sm text-slate-600">
-            Fast entry: type ranges like{" "}
-            <span className="font-mono text-xs">
-              Jan 16 10AM-11:30AM; Jan 16 2:30PM-4PM; Jan 17 9AM-11AM
-            </span>{" "}
-            then convert to preview and submit.
+            Choose the fastest way: easy ranges (dropdown/custom like candidate page) or manual typing.
           </p>
         </header>
 
@@ -401,6 +470,7 @@ export default function Respond() {
                   </ul>
                 </div>
               )}
+
               {execListNamesOnly && (
                 <div className="space-y-1">
                   <div className="text-sm font-semibold">Execs for this request:</div>
@@ -408,7 +478,7 @@ export default function Respond() {
                     {execListNamesOnly}
                   </pre>
                   <p className="text-[11px] text-slate-500">
-                    Email addresses are hidden on this page. If you support multiple execs, submit separately per exec name.
+                    Emails are hidden here. If you support multiple execs, submit separately per exec name.
                   </p>
                 </div>
               )}
@@ -417,9 +487,7 @@ export default function Respond() {
 
           {execColumns.length > 0 && Object.keys(grouped).length > 0 && (
             <div className="space-y-2">
-              <div className="text-sm font-semibold">
-                Exec availability so far (grouped by day)
-              </div>
+              <div className="text-sm font-semibold">Exec availability so far (grouped by day)</div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">
                   <thead>
@@ -459,65 +527,218 @@ export default function Respond() {
             />
           </div>
 
-          {/* Manual entry */}
-          <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="text-sm font-semibold text-slate-800">
-              Enter availability manually
-            </div>
-            <p className="text-[11px] text-slate-600">
-              One per line (or separate with semicolons). Supported date formats:{" "}
-              <span className="font-mono">Jan 16</span>,{" "}
-              <span className="font-mono">Jan 16 2026</span>,{" "}
-              <span className="font-mono">1/16</span>,{" "}
-              <span className="font-mono">1/16/2026</span>. Times:{" "}
-              <span className="font-mono">10AM</span>,{" "}
-              <span className="font-mono">11:30AM</span>,{" "}
-              <span className="font-mono">14:00</span>.
-            </p>
-
-            <textarea
-              className="w-full min-h-[110px] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 font-mono"
-              value={manualText}
-              onChange={(e) => setManualText(e.target.value)}
-              placeholder={
-                "Jan 16 10AM-11:30AM\nJan 16 2:30PM-4PM\nJan 17 9AM-11AM\nJan 17 1PM-3PM"
-              }
-            />
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={convertManualToPreview}
-                className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
-              >
-                Convert to preview
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setManualText("");
-                  setPreview([]);
-                  setManualErr("");
-                }}
-                className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
-              >
-                Clear
-              </button>
-            </div>
-
-            {manualErr && (
-              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900">
-                {manualErr}
-              </div>
-            )}
+          {/* Mode toggle */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("easy")}
+              className={`text-xs px-3 py-2 rounded-md border ${
+                mode === "easy"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-800 border-slate-300"
+              }`}
+            >
+              Easy ranges
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("manual")}
+              className={`text-xs px-3 py-2 rounded-md border ${
+                mode === "manual"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-800 border-slate-300"
+              }`}
+            >
+              Add availability manually
+            </button>
           </div>
+
+          {/* Easy ranges (same UX as candidate page) */}
+          {mode === "easy" && (
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">
+                Exec availability (easy entry)
+              </div>
+              <p className="text-[11px] text-slate-600">
+                Same style as candidate availability: pick date + 30-min dropdown, or toggle to custom time.
+              </p>
+
+              {easyRows.map((r, i) => (
+                <div key={i} className="space-y-2 border border-slate-200 rounded-lg p-3 bg-white">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="flex flex-col flex-1">
+                      <span className="text-xs text-slate-500 mb-1">Date</span>
+                      <input
+                        type="date"
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                        value={r.date}
+                        onChange={(e) => updateEasyRow(i, "date", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* Start */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">Start time</span>
+                        <button
+                          type="button"
+                          className="text-[11px] text-sky-600"
+                          onClick={() =>
+                            updateEasyRow(i, "startChoice", r.startChoice === "dropdown" ? "custom" : "dropdown")
+                          }
+                        >
+                          {r.startChoice === "dropdown" ? "Use custom" : "Use dropdown"}
+                        </button>
+                      </div>
+                      {r.startChoice === "dropdown" ? (
+                        <select
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                          value={r.startDropdown}
+                          onChange={(e) => updateEasyRow(i, "startDropdown", e.target.value)}
+                        >
+                          <option value="">Select…</option>
+                          {timeOptions.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="time"
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                          value={r.startCustom}
+                          onChange={(e) => updateEasyRow(i, "startCustom", e.target.value)}
+                        />
+                      )}
+                    </div>
+
+                    {/* End */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">End time</span>
+                        <button
+                          type="button"
+                          className="text-[11px] text-sky-600"
+                          onClick={() =>
+                            updateEasyRow(i, "endChoice", r.endChoice === "dropdown" ? "custom" : "dropdown")
+                          }
+                        >
+                          {r.endChoice === "dropdown" ? "Use custom" : "Use dropdown"}
+                        </button>
+                      </div>
+                      {r.endChoice === "dropdown" ? (
+                        <select
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                          value={r.endDropdown}
+                          onChange={(e) => updateEasyRow(i, "endDropdown", e.target.value)}
+                        >
+                          <option value="">Select…</option>
+                          {timeOptions.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="time"
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                          value={r.endCustom}
+                          onChange={(e) => updateEasyRow(i, "endCustom", e.target.value)}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button type="button" className="text-xs text-red-500" onClick={() => removeEasyRow(i)}>
+                      Remove row
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="text-xs text-sky-600 hover:text-sky-500"
+                  type="button"
+                  onClick={addEasyRow}
+                >
+                  + Add another row
+                </button>
+                <button
+                  className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
+                  type="button"
+                  onClick={convertEasyToPreview}
+                >
+                  Convert rows to preview
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Manual */}
+          {mode === "manual" && (
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Add availability manually</div>
+              <p className="text-[11px] text-slate-600">
+                Example: <span className="font-mono">Jan 16 10AM-11:30AM; Jan 16 2:30PM-4PM</span>
+              </p>
+
+              <textarea
+                className="w-full min-h-[110px] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 font-mono"
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+                placeholder={"Jan 16 10AM-11:30AM\nJan 16 2:30PM-4PM\nJan 17 9AM-11AM\nJan 17 1PM-3PM"}
+              />
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={convertManualToPreview}
+                  className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
+                >
+                  Convert text to preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualText("");
+                    setManualErr("");
+                  }}
+                  className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
+                >
+                  Clear
+                </button>
+              </div>
+
+              {manualErr && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900">
+                  {manualErr}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Preview */}
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-slate-800">Preview</div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-800">Preview (what will be saved)</div>
+              <button
+                type="button"
+                className="text-[11px] text-red-600"
+                onClick={() => setPreview([])}
+              >
+                Clear preview
+              </button>
+            </div>
+
             {preview.length === 0 ? (
               <div className="text-xs text-slate-500">
-                Convert your manual entry to see preview rows here.
+                Convert ranges (easy/manual) to see preview rows here.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -531,8 +752,8 @@ export default function Respond() {
                   <tbody>
                     {preview.map((r, i) => (
                       <tr key={`${r.start}-${r.end}-${i}`} className="border-b border-slate-100 last:border-0">
-                        <td className="py-2 pr-4 text-slate-800">{new Date(r.start).toLocaleString()}</td>
-                        <td className="py-2 pr-4 text-slate-800">{new Date(r.end).toLocaleString()}</td>
+                        <td className="py-2 pr-4">{new Date(r.start).toLocaleString()}</td>
+                        <td className="py-2 pr-4">{new Date(r.end).toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -541,6 +762,7 @@ export default function Respond() {
             )}
           </div>
 
+          {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <button
               className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
@@ -571,6 +793,7 @@ export default function Respond() {
           )}
         </section>
 
+        {/* Chat */}
         <ChatPanel role="ea" />
       </div>
     </main>
