@@ -1,128 +1,88 @@
-import { Redis } from '@upstash/redis';
-import type { Window, EaSubmission } from './db';
+import { Redis } from "@upstash/redis";
+import type { Window, EaSubmission } from "./db";
 
 const HAS_UPSTASH = !!process.env.UPSTASH_REDIS_REST_URL;
-
-const redis = HAS_UPSTASH
-  ? new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    })
-  : null;
-
-export type ExecHistoryRange = { start: string; end: string };
-
-export type ExecHistoryEntry = {
-  execName: string;
-  ranges: ExecHistoryRange[];
-  at: string; // when this availability was submitted
-  // later we can add candidateName, title, etc.
-};
+const redis = HAS_UPSTASH ? Redis.fromEnv() : null;
 
 let localWindow: Window | null = null;
-let localSubs: EaSubmission[] = [];
-let localExecHistory: ExecHistoryEntry[] = [];
+// local fallback as a map: execName -> submission
+let localSubsMap: Record<string, EaSubmission> = {};
 
 const KEYS = {
-  window: 'isl:window',
-  subs: 'isl:subs',
-  execHistory: 'isl:exec_history_v1',
+  window: "isl:window",
+  // change from LIST to HASH so each exec has exactly one record
+  subsHash: "isl:subs_hash_v1",
 };
+
+function normExecName(name: string) {
+  return String(name || "")
+    .trim()
+    .replace(/\s+/g, " "); // collapse extra spaces
+}
 
 export async function saveWindow(win: Window) {
   if (redis) {
     await redis.set(KEYS.window, win);
-    await redis.del(KEYS.subs);
+    // NOTE: we do NOT clear subs on new window unless you want that behavior.
+    // If you want "new window resets submissions", uncomment:
+    // await redis.del(KEYS.subsHash);
   } else {
     localWindow = win;
-    localSubs = [];
   }
 }
 
 export async function getWindow(): Promise<Window | null> {
-  if (redis) {
-    return (await redis.get<Window>(KEYS.window)) || null;
-  }
+  if (redis) return (await redis.get<Window>(KEYS.window)) || null;
   return localWindow;
 }
 
-/**
- * addSubmission
- *
- * For the *current window*, there should be at most ONE active submission per exec.
- * So this REPLACES any previous submission for the same execName.
- */
-export async function addSubmission(sub: EaSubmission) {
-  const execName = (sub as any).execName as string | undefined;
+export async function upsertSubmission(sub: EaSubmission) {
+  const execName = normExecName((sub as any)?.execName);
+  if (!execName) return;
 
-  if (!execName) {
-    // fallback: just append if execName missing for some reason
-    if (redis) {
-      await redis.rpush(KEYS.subs, JSON.stringify(sub));
-    } else {
-      localSubs.push(sub);
-    }
-    return;
-  }
+  const clean: EaSubmission = {
+    ...(sub as any),
+    execName,
+  };
 
   if (redis) {
-    const raw = await redis.lrange<string>(KEYS.subs, 0, -1);
-    const existing: EaSubmission[] = (raw || []).map((s) => JSON.parse(s));
-
-    const filtered = existing.filter(
-      (s: any) => s.execName !== execName
-    );
-    filtered.push(sub);
-
-    await redis.del(KEYS.subs);
-    if (filtered.length > 0) {
-      await redis.rpush(
-        KEYS.subs,
-        ...filtered.map((s) => JSON.stringify(s))
-      );
-    }
+    await redis.hset(KEYS.subsHash, { [execName]: JSON.stringify(clean) });
   } else {
-    localSubs = [
-      ...localSubs.filter((s: any) => s.execName !== execName),
-      sub,
-    ];
+    localSubsMap[execName] = clean;
+  }
+}
+
+export async function removeSubmission(execNameRaw: string) {
+  const execName = normExecName(execNameRaw);
+  if (!execName) return;
+
+  if (redis) {
+    await redis.hdel(KEYS.subsHash, execName);
+  } else {
+    delete localSubsMap[execName];
   }
 }
 
 export async function getSubmissions(): Promise<EaSubmission[]> {
   if (redis) {
-    const raw = await redis.lrange<string>(KEYS.subs, 0, -1);
-    return (raw || []).map((s) => JSON.parse(s)) as EaSubmission[];
-  }
-  return localSubs;
-}
-
-// === Exec availability history log ===
-// Used by /api/execs so schedulers can see past availability across requests.
-
-export async function addExecHistoryEntry(entry: ExecHistoryEntry) {
-  if (redis) {
-    await redis.lpush(KEYS.execHistory, JSON.stringify(entry));
-    await redis.ltrim(KEYS.execHistory, 0, 999); // keep latest 1000
-  } else {
-    localExecHistory.unshift(entry);
-    localExecHistory = localExecHistory.slice(0, 1000);
-  }
-}
-
-export async function getExecHistoryEntries(): Promise<ExecHistoryEntry[]> {
-  if (redis) {
-    const raw = await redis.lrange<string>(KEYS.execHistory, 0, -1);
-    const entries: ExecHistoryEntry[] = [];
-    for (const item of raw || []) {
+    const obj = (await redis.hgetall<Record<string, string>>(KEYS.subsHash)) || {};
+    const out: EaSubmission[] = [];
+    for (const [, v] of Object.entries(obj)) {
       try {
-        entries.push(JSON.parse(item));
+        out.push(JSON.parse(v));
       } catch {
-        // ignore malformed rows
+        // ignore malformed
       }
     }
-    return entries;
+    // stable ordering by execName
+    out.sort((a: any, b: any) =>
+      String(a.execName || "").localeCompare(String(b.execName || ""))
+    );
+    return out;
   }
-  return localExecHistory;
+
+  return Object.values(localSubsMap).sort((a: any, b: any) =>
+    String(a.execName || "").localeCompare(String(b.execName || ""))
+  );
 }
 
