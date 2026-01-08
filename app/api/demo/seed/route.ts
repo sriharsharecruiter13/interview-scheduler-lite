@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { makeId } from "../../../../lib/db";
-import { saveWindow, upsertSubmission } from "../../../../lib/store";
+import { saveWindow, upsertSubmission, addExecHistoryEntry } from "../../../../lib/store";
 
 export const runtime = "nodejs";
 
 function iso(y: number, m: number, d: number, h: number, min: number) {
-  // local time -> "YYYY-MM-DDTHH:mm"
   const dt = new Date(y, m - 1, d, h, min, 0, 0);
   const yy = dt.getFullYear();
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
@@ -16,9 +15,9 @@ function iso(y: number, m: number, d: number, h: number, min: number) {
 }
 
 export async function POST() {
-  const now = new Date().toISOString();
+  const at = new Date().toISOString();
 
-  await saveWindow({
+  const win = {
     id: makeId(),
     candidateName: "Demo Candidate",
     title: "Demo Role",
@@ -28,29 +27,30 @@ export async function POST() {
       { start: iso(2026, 1, 17, 9, 0), end: iso(2026, 1, 17, 12, 0) },
     ],
     eaDirectory: [],
-  } as any);
+  } as any;
 
-  // Seed a few exec availabilities (one per exec)
-  await upsertSubmission({
-    execName: "Cathy",
-    at: now,
-    ranges: [
-      { start: iso(2026, 1, 16, 9, 0), end: iso(2026, 1, 16, 11, 0) },
-      { start: iso(2026, 1, 17, 10, 0), end: iso(2026, 1, 17, 11, 0) },
-    ],
-  } as any);
+  await saveWindow(win);
 
-  await upsertSubmission({
-    execName: "Jon",
-    at: now,
-    ranges: [{ start: iso(2026, 1, 16, 10, 0), end: iso(2026, 1, 16, 12, 0) }],
-  } as any);
+  // Seed current submissions + history rows
+  const seed = async (execName: string, ranges: any[]) => {
+    await upsertSubmission({ execName, ranges, at } as any);
+    await addExecHistoryEntry({
+      execName,
+      ranges,
+      at,
+      candidateName: win.candidateName,
+      title: win.title,
+    });
+  };
 
-  await upsertSubmission({
-    execName: "Niall",
-    at: now,
-    ranges: [{ start: iso(2026, 1, 17, 9, 0), end: iso(2026, 1, 17, 11, 0) }],
-  } as any);
+  await seed("Cathy", [
+    { start: iso(2026, 1, 16, 9, 0), end: iso(2026, 1, 16, 11, 0) },
+    { start: iso(2026, 1, 17, 10, 0), end: iso(2026, 1, 17, 11, 0) },
+  ]);
+
+  await seed("Jon", [{ start: iso(2026, 1, 16, 10, 0), end: iso(2026, 1, 16, 12, 0) }]);
+
+  await seed("Niall", [{ start: iso(2026, 1, 17, 9, 0), end: iso(2026, 1, 17, 11, 0) }]);
 
   return NextResponse.json({ ok: true });
 }

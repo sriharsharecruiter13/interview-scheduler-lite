@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { upsertSubmission, removeSubmission } from "../../../../lib/store";
+import {
+  upsertSubmission,
+  removeSubmission,
+  addExecHistoryEntry,
+  getWindow,
+} from "../../../../lib/store";
 
 type Range = { start: string; end: string };
 
@@ -12,7 +17,6 @@ function normExecName(name: string) {
 export async function POST(req: Request) {
   try {
     const { execName, ranges = [] } = await req.json();
-
     const cleanExec = normExecName(execName);
 
     const clean: Range[] = Array.isArray(ranges)
@@ -29,11 +33,20 @@ export async function POST(req: Request) {
       );
     }
 
-    await upsertSubmission({
+    const at = new Date().toISOString();
+
+    // 1) Update current (latest per exec)
+    await upsertSubmission({ execName: cleanExec, ranges: clean, at } as any);
+
+    // 2) Append to history with candidate context (if available)
+    const win = await getWindow();
+    await addExecHistoryEntry({
       execName: cleanExec,
       ranges: clean,
-      at: new Date().toISOString(),
-    } as any);
+      at,
+      candidateName: (win as any)?.candidateName,
+      title: (win as any)?.title,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
@@ -48,6 +61,7 @@ export async function DELETE(req: Request) {
   try {
     const { execName } = await req.json();
     const cleanExec = normExecName(execName);
+
     if (!cleanExec) {
       return NextResponse.json(
         { ok: false, error: "Enter Exec name to remove." },
@@ -56,6 +70,10 @@ export async function DELETE(req: Request) {
     }
 
     await removeSubmission(cleanExec);
+
+    // Note: we do NOT delete history rows when removing current availability.
+    // History is an audit log.
+
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(

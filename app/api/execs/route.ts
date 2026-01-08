@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server";
-import { getSubmissions } from "../../../lib/store";
+import { getExecHistoryEntries } from "../../../lib/store";
 
 export const runtime = "nodejs";
 
 type Range = { start: string; end: string };
 
-type Submission = {
-  execName: string;
-  ranges: Range[];
-  at?: string;
-};
-
 type ExecEntry = {
   execName: string;
   ranges: Range[];
+  lastSubmittedAt?: string;
 };
 
 function dedupeRanges(ranges: Range[]): Range[] {
@@ -25,29 +20,35 @@ function dedupeRanges(ranges: Range[]): Range[] {
     seen.add(key);
     out.push(r);
   }
+  // sort by start time
+  out.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
   return out;
 }
 
 export async function GET() {
-  const submissions: Submission[] = (await getSubmissions()) || [];
+  const entries = await getExecHistoryEntries();
 
-  // Already one submission per exec, but we’ll still aggregate safely
-  const map = new Map<string, Range[]>();
+  const map = new Map<string, { ranges: Range[]; lastAt: string }>();
 
-  for (const s of submissions) {
-    if (!s.execName) continue;
-    if (!map.has(s.execName)) map.set(s.execName, []);
-    const arr = map.get(s.execName)!;
+  for (const e of entries || []) {
+    if (!e?.execName) continue;
+    if (!map.has(e.execName)) map.set(e.execName, { ranges: [], lastAt: e.at || "" });
 
-    for (const r of s.ranges || []) {
-      if (r.start && r.end) arr.push({ start: r.start, end: r.end });
+    const bucket = map.get(e.execName)!;
+    if (e.at && (!bucket.lastAt || new Date(e.at) > new Date(bucket.lastAt))) {
+      bucket.lastAt = e.at;
+    }
+
+    for (const r of e.ranges || []) {
+      if (r.start && r.end) bucket.ranges.push({ start: r.start, end: r.end });
     }
   }
 
   const execs: ExecEntry[] = Array.from(map.entries())
-    .map(([execName, ranges]) => ({
+    .map(([execName, v]) => ({
       execName,
-      ranges: dedupeRanges(ranges),
+      ranges: dedupeRanges(v.ranges),
+      lastSubmittedAt: v.lastAt || undefined,
     }))
     .sort((a, b) => a.execName.localeCompare(b.execName));
 
