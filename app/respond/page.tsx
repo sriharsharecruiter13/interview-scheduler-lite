@@ -251,7 +251,7 @@ export default function Respond() {
   const [manualText, setManualText] = useState("");
   const [manualErr, setManualErr] = useState("");
 
-  // Preview ranges to be saved
+  // Preview ranges to be saved (manual mode)
   const [preview, setPreview] = useState<Range[]>([]);
 
   async function load() {
@@ -260,8 +260,6 @@ export default function Respond() {
       if (!r.ok) return;
       const d = (await r.json()) as WindowResponse;
 
-      // Only update window fields if we actually got values.
-      // This prevents "disappearing" when a poll returns empty/temporary data.
       const nextCandidate = d?.window?.candidateRanges || [];
       const nextExecList = d?.window?.execList || "";
       const nextSubs = d?.submissions || [];
@@ -277,7 +275,7 @@ export default function Respond() {
 
       setSubs(nextSubs);
     } catch {
-      // keep last good values on any error
+      // keep last good values
     }
   }
 
@@ -287,7 +285,6 @@ export default function Respond() {
     return () => clearInterval(t);
   }, []);
 
-  // Names-only exec list for EA view
   const execListNamesOnly = useMemo(() => {
     if (!execList) return "";
     return execList
@@ -342,20 +339,6 @@ export default function Respond() {
     setEasyRows((list) => list.filter((_, idx) => idx !== i));
   }
 
-  function convertEasyToPreview() {
-    const ranges = easyRows
-      .map(easyRowToRange)
-      .filter((r): r is Range => !!r);
-
-    if (ranges.length === 0) {
-      setErr("Add at least one valid range (date + start + end), then convert.");
-      return;
-    }
-
-    setErr("");
-    setPreview((prev) => dedupeRanges([...prev, ...ranges]));
-  }
-
   function convertManualToPreview() {
     setManualErr("");
     const txt = manualText.trim();
@@ -386,12 +369,28 @@ export default function Respond() {
 
     try {
       if (!execName) throw new Error("Enter Exec name.");
-      if (preview.length === 0) throw new Error("No ranges to save. Convert ranges into preview first.");
+
+      let rangesToSave: Range[] = [];
+
+      if (mode === "easy") {
+        rangesToSave = dedupeRanges(
+          easyRows.map(easyRowToRange).filter((r): r is Range => !!r)
+        );
+        if (rangesToSave.length === 0) {
+          throw new Error("Add at least one valid range (date + start + end).");
+        }
+      } else {
+        // manual
+        if (preview.length === 0) {
+          throw new Error("No ranges to save. Convert text into preview first.");
+        }
+        rangesToSave = preview;
+      }
 
       const res = await fetch("/api/ea/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ execName, ranges: preview }),
+        body: JSON.stringify({ execName, ranges: rangesToSave }),
       });
 
       if (!res.ok) {
@@ -416,7 +415,7 @@ export default function Respond() {
       setPreview([]);
       load();
     } catch (e: any) {
-      setErr(e.message || "Failed");
+      setErr(e?.message || "Failed");
     }
   }
 
@@ -437,7 +436,7 @@ export default function Respond() {
       setDone("Removed your availability.");
       load();
     } catch (e: any) {
-      setErr(e.message || "Failed");
+      setErr(e?.message || "Failed");
     }
   }
 
@@ -669,13 +668,6 @@ export default function Respond() {
                 >
                   + Add another row
                 </button>
-                <button
-                  className="text-xs px-3 py-2 rounded-md bg-white border border-slate-300 text-slate-800 hover:bg-slate-100"
-                  type="button"
-                  onClick={convertEasyToPreview}
-                >
-                  Convert rows to preview
-                </button>
               </div>
             </div>
           )}
@@ -723,44 +715,51 @@ export default function Respond() {
             </div>
           )}
 
-          {/* Preview */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-800">Preview (what will be saved)</div>
-              <button
-                type="button"
-                className="text-[11px] text-red-600"
-                onClick={() => setPreview([])}
-              >
-                Clear preview
-              </button>
-            </div>
+          {/* Preview (manual only) */}
+          {mode === "manual" && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-slate-800">
+                  Preview (what will be saved)
+                </div>
+                <button
+                  type="button"
+                  className="text-[11px] text-red-600"
+                  onClick={() => setPreview([])}
+                >
+                  Clear preview
+                </button>
+              </div>
 
-            {preview.length === 0 ? (
-              <div className="text-xs text-slate-500">
-                Convert ranges (easy/manual) to see preview rows here.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm text-left">
-                  <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
-                    <tr>
-                      <th className="py-2 pr-4">Start</th>
-                      <th className="py-2 pr-4">End</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.map((r, i) => (
-                      <tr key={`${r.start}-${r.end}-${i}`} className="border-b border-slate-100 last:border-0">
-                        <td className="py-2 pr-4">{new Date(r.start).toLocaleString()}</td>
-                        <td className="py-2 pr-4">{new Date(r.end).toLocaleString()}</td>
+              {preview.length === 0 ? (
+                <div className="text-xs text-slate-500">
+                  Convert ranges (manual) to see preview rows here.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm text-left">
+                    <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="py-2 pr-4">Start</th>
+                        <th className="py-2 pr-4">End</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                    </thead>
+                    <tbody>
+                      {preview.map((r, i) => (
+                        <tr
+                          key={`${r.start}-${r.end}-${i}`}
+                          className="border-b border-slate-100 last:border-0"
+                        >
+                          <td className="py-2 pr-4">{new Date(r.start).toLocaleString()}</td>
+                          <td className="py-2 pr-4">{new Date(r.end).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex flex-wrap gap-2">

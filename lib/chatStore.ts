@@ -1,72 +1,73 @@
 import { Redis } from "@upstash/redis";
 
-export type ChatRole = "tac" | "ea" | "bot";
+export const runtime = "nodejs";
+
+const HAS_UPSTASH = !!process.env.UPSTASH_REDIS_REST_URL;
+const redis = HAS_UPSTASH ? Redis.fromEnv() : null;
+
+const KEY = "isl:chat_v1";
 
 export type ChatMessage = {
   id: string;
-  role: ChatRole;
+  at: string; // ISO
+  role: "ea" | "assistant" | "system";
   text: string;
-  at: string; // ISO timestamp
 };
 
-// Use same pattern as lib/store.ts: Upstash if available, else local memory
-const HAS_UPSTASH = !!process.env.UPSTASH_REDIS_REST_URL;
+function makeId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
-const redis = HAS_UPSTASH ? Redis.fromEnv() : null;
-
-const CHAT_KEY = "isl:chat_current_window_v1";
-const MAX_MESSAGES = 200;
-
-// Local in-memory fallback (for dev when no Redis env vars)
 let localMessages: ChatMessage[] = [];
 
 export async function getChatMessages(): Promise<ChatMessage[]> {
   if (redis) {
-    const raw = await redis.lrange<string>(CHAT_KEY, 0, -1);
+    const raw = await redis.lrange<any>(KEY, 0, -1);
     const out: ChatMessage[] = [];
 
     for (const item of raw || []) {
-      try {
-        const parsed = JSON.parse(item) as ChatMessage;
-        if (parsed && parsed.id && parsed.text) {
-          out.push(parsed);
-        }
-      } catch {
-        // ignore bad rows
+      // Upstash may return already-parsed objects OR strings
+      if (item && typeof item === "object") out.push(item as ChatMessage);
+      else if (typeof item === "string") {
+        try {
+          out.push(JSON.parse(item));
+        } catch {}
       }
     }
-
     return out;
   }
 
-  // No Redis → just use in-memory messages
   return localMessages;
 }
 
-export async function addChatMessage(
-  role: ChatRole,
-  text: string
-): Promise<ChatMessage | null> {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
+export async function appendChatMessage(input: Omit<ChatMessage, "id" | "at">) {
   const msg: ChatMessage = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    text: trimmed,
+    id: makeId(),
     at: new Date().toISOString(),
+    role: input.role,
+    text: String(input.text || ""),
   };
 
   if (redis) {
-    await redis.rpush(CHAT_KEY, JSON.stringify(msg));
-    await redis.ltrim(CHAT_KEY, -MAX_MESSAGES, -1);
+    await redis.rpush(KEY, JSON.stringify(msg));
+    // cap to last 500 messages
+    const len = await redis.llen(KEY);
+    if (len > 500) {
+      await redis.ltrim(KEY, len - 500, -1);
+    }
   } else {
     localMessages.push(msg);
-    if (localMessages.length > MAX_MESSAGES) {
-      localMessages = localMessages.slice(-MAX_MESSAGES);
-    }
+    if (localMessages.length > 500) localMessages = localMessages.slice(-500);
   }
 
   return msg;
+}
+
+export async function clearChat() {
+  if (redis) {
+    await redis.del(KEY);
+  } else {
+    localMessages = [];
+  }
 }
 
